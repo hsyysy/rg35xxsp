@@ -1,0 +1,63 @@
+site_name: RG35XX-SP BSP
+site_description: Anbernic RG35XX-SP (Allwinner H700) 内核 / 固件 / rootfs 开发笔记
+site_url: https://hsyysy.github.io/rg35xxsp/
+repo_url: https://github.com/hsyysy/rg35xxsp
+repo_name: hsyysy/rg35xxsp
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - attr_list
+  - toc:
+      permalink: true
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+    - 主线内核: mainline-guide.md
+    - 原厂镜像: stock-image-guide.md
+  - 参考:
+    - 设备硬件事实: device-facts.md
+    - 主线支持细节: mainline-support.md
+    - 原厂固件分析: stock-firmware-analysis.md
+    - GPU/GLES 测试: gpu-gles-test.md
+  - 开发日志:
+    - rootfs 固件清单: rootfs-prep.md
+    - LCD 调试日志: display-worklog.md
+    - H264 V4L2 研究: v4l2-request-h264.md
+    - 问题记录: issues.md
+    - 验证报告: verification-report.md
+  - 调研:
+    - BSP 内核源码搜索: bsp-kernel-source-search.md
