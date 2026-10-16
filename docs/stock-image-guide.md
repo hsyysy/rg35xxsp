@@ -36,7 +36,7 @@
 
 ## 路线 A': Alpine 直接套
 
-**参考**: `thirdparty/alpine-h700/`
+**参考**：Alpine 用户态与原厂内核组合方案。
 
 **原理**: 原厂内核 + Alpine mini rootfs, 最轻量方案。
 
@@ -70,7 +70,7 @@ HandsomeMod 2021 快照 (4.9.118) 缺少 Allwinner 2021→2025 间加入的 29 �
 ### 串口 panic 日志摘要
 
 ```
-[    0.000000] Linux version 4.9.170 (x@SYPC) (gcc version 5.3.1 20160412
+[    0.000000] Linux version 4.9.170 (BUILD_ID_OMITTED) (gcc version 5.3.1 20160412
                   (Linaro GCC 5.3-2016.05) ) #3 SMP PREEMPT Tue May 19 20:12:54 CST 2026
 [    0.767306] uart uart1: uart1 error to get fifo size property
 [   21.793959] INFO: rcu_preempt detected stalls on CPUs/tasks:
@@ -85,13 +85,13 @@ CPU 0 在 0.767s 后进 idle 永不出来, CPU 3 在 21s 后报 RCU stall。
 1. `sensor_helper.c` 的 `ccm0`/`ccm1` 多重定义 (任何工具链都冲突)
 2. `disp2/` 缺 SUN50IW9 平台分发 (HandsomeMod 2021 快照缺失)
 
-**板级 dts**: 用设备 `device/dtb/0_1334800.dts` (lcd_type=old) 作为基线。
+**板级 DTS**：使用原厂镜像中 lcd_type=old 对应的设备树作为基线。
 
-**配置**: `cp device/config-4.9.170 .config && make ARCH=arm64 oldconfig` — 暴露 91 个 `(NEW)` 符号。
+**配置**：使用设备导出的 4.9.170 配置执行 oldconfig，暴露 91 个 `(NEW)` 符号。
 
 ### 首次试刷复盘 (2026-05-16)
 
-黑屏 brick。回滚路径: 拔 TF1 SD 卡 → 主机读卡器 `dd if=device/boot.img of=/dev/sdd4` → 装回。
+首次试刷出现黑屏；当时使用预先保存的启动分区备份恢复。该记录只适用于原厂多分区布局。
 
 **教训**: deploy 脚本备份了 `/dev/mmcblk0p4` 但没防 `tar -xzf` 覆盖 `/lib/modules/`, 需要先删旧目录再解压。
 
@@ -102,7 +102,7 @@ CPU 0 在 0.767s 后进 idle 永不出来, CPU 3 在 21s 后报 RCU stall。
 - **方案 B**: 扩展 HandsomeMod 已有 `axp2101-chg.c` 加 AXP2202 分支
 - **方案 C**: 写独立 platform driver
 
-详见原 README 路线 A 章节。
+历史编译检查见[验证报告](verification-report.md)。
 
 ### 原厂源码检索审计
 

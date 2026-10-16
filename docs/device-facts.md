@@ -1,15 +1,17 @@
 # RG35XX-SP 设备实际情况汇总
 
+> 示例中的 `DEVICE_HOST` 表示设备地址，请按实际环境替换。原厂内核的构建身份和网络公开日志中的构建身份按来源保留。
+>
 > **来源可信度规则（适用于本文档全部条目）**
 >
 > 仅以下三类来源被视为权威，可直接作为事实依据：
-> 1. **设备实测**：`ssh root@SP_HOST`（TF1 卡槽内 SD 卡，非 eMMC）通过 `/proc`、`/sys`、`dmesg`、`fdisk`、`strings /dev/mmcblk0p*` 等手段读出的运行时数据
-> 2. **设备串口日志**：`scripts/serial.log`（实际重启抓取的 BOOT0/ATF/U-Boot/Kernel printk）
-> 3. **官方 PDF 文档**：`doc/*.pdf` —— Allwinner H616 Datasheet / H616 User Manual / H700 brief / H616 USB module manual / H616 Android Q OTA Guide（已转文本到 `pdf-text/`）
+> 1. **设备实测**：`ssh root@DEVICE_HOST`（TF1 卡槽内 SD 卡，非 eMMC）通过 `/proc`、`/sys`、`dmesg`、`fdisk`、`strings /dev/mmcblk0p*` 等手段读出的运行时数据
+> 2. **设备串口日志**：串口采集日志（实际重启抓取的 BOOT0/ATF/U-Boot/Kernel printk）
+> 3. **官方 PDF 文档**：官方数据手册（可从 [linux-sunxi H616 资料页](https://linux-sunxi.org/H616)查阅）—— Allwinner H616 Datasheet / H616 User Manual / H700 brief / H616 USB module manual / H616 Android Q OTA Guide
 >
-> **其他来源默认不可信**，包括本仓库内的 `README.md`、`mainline-support.md`、`verification-report.md`、第三方 BSP 树（HandsomeMod、batocera-h700、alpine-h700 等）的注释/文档。若必须引用，须显式标注来源并降级为"推测/未验证"。
+> **其他来源默认不可信**，包括本仓库内的 项目说明、`mainline-support.md`、`verification-report.md`、第三方 BSP 树（HandsomeMod、batocera-h700、alpine-h700 等）的注释/文档。若必须引用，须显式标注来源并降级为"推测/未验证"。
 >
-> 本文档原始内容抽取自 `README.md` 中与 BSP 无关、仅描述设备硬件/固件/运行时状态的条目；**2026-05-20 验证**：经 `ssh sp` 实测 + serial.log 重启 + 官方 PDF 对照，绝大多数条目正确。下表为发现的偏差，已就地修正具体条目；总结见文末"十一、2026-05-20 验证摘要" 和 "十二、H616 PDF 文档补强"。
+> 本文档原始内容抽取自 项目说明 中与 BSP 无关、仅描述设备硬件/固件/运行时状态的条目；**2026-05-20 验证**：经 `ssh root@DEVICE_HOST` 实测 + serial.log 重启 + 官方 PDF 对照，绝大多数条目正确。下表为发现的偏差，已就地修正具体条目；总结见文末"十一、2026-05-20 验证摘要" 和 "十二、H616 PDF 文档补强"。
 
 ---
 
@@ -18,12 +20,12 @@
 ### 1. CPU：Quad Cortex-A53
 
 - **事实**：`/proc/cpuinfo` 报 4 cores
-- **验证方式**：`ssh root@SP_HOST cat /proc/cpuinfo`
+- **验证方式**：`ssh root@DEVICE_HOST cat /proc/cpuinfo`
 
 ### 2. GPU：Mali-G31 MP1（非 brief 标称的 MP2）
 
 - **事实**：`/sys/devices/platform/gpu/gpuinfo` 明确报 1 cores，r0p0，ID 0x7093。H700 Brief 标称 MP2，**实测为 MP1**
-- **验证方式**：`ssh root@SP_HOST cat /sys/devices/platform/gpu/gpuinfo`
+- **验证方式**：`ssh root@DEVICE_HOST cat /sys/devices/platform/gpu/gpuinfo`
 - **备注**：可能是 H700 SKU 在 RG35XX-SP 上 fuse 掉了第 2 个 shader core，或 brief 描述的是上限
 
 ### 3. GPU compatible 字符串：`arm,mali-midgard`（BSP DTS）
@@ -36,13 +38,13 @@
 ### 4. GPU OPP：6 档频率
 
 - **事实**：420 / 456 / 504 / 552 / 600 / 648 MHz
-- **验证方式**：`ssh root@SP_HOST cat /sys/devices/platform/gpu/devfreq/gpu/available_frequencies`
+- **验证方式**：`ssh root@DEVICE_HOST cat /sys/devices/platform/gpu/devfreq/gpu/available_frequencies`
 
 ### 5. DRAM：LPDDR4 @ 672 MHz，32-bit 总线，1 GiB
 
 - **事实**：`dram_type=8`（LPDDR4，BSP 编号），32-bit 总线带宽约 5.4 GB/s 峰值
 - **验证方式**：
-  - 串口 BOOT0 日志（`scripts/serial.log` 2026-05-20 实测重启，锚点搜索）：
+  - 串口 BOOT0 日志（串口采集日志 2026-05-20 实测重启，锚点搜索）：
     - `DRAM CLK =672 MHZ`
     - `DRAM Type =8 (3:DDR3,4:DDR4,7:LPDDR3,8:LPDDR4)`
     - `Actual DRAM SIZE =1024 M`
@@ -55,7 +57,7 @@
 ### 6. IOMMU：存在
 
 - **事实**：`0x030f0000-030f0fff : /iommu@030f0000`
-- **验证方式**：`ssh root@SP_HOST cat /proc/iomem | grep iommu`
+- **验证方式**：`ssh root@DEVICE_HOST cat /proc/iomem | grep iommu`
 - **备注**：mainline DRM/VPU 必需
 
 ### 7. LCD 接口：RGB888，640×480 24-bit IPS
@@ -64,18 +66,28 @@
 - **屏型号"WL-355608-A8" 提示**：mainline DTS（linux-sunxi 社区树）将此 panel 标称为 WL-355608-A8（3.5" 640×480 24-bit IPS）。**此型号字符串不在设备 `/proc/device-tree` 或 boot.img 二进制中出现**（设备侧只有厂商代号 `fog_fj035fhd05_v1`），属本文档来源规则中的"第三方/社区来源"，未通过设备或官方 PDF 独立验证；仅作交叉参考
 - **验证方式**：
   - 设备 DTS 中 `lcd_driver_name` 和 `lcd_x` 属性（实测 `lcd_x=0x280=640, lcd_y=0x1e0=480`）
-  - `ssh root@SP_HOST cat /sys/class/disp/disp/attr/sys` → `mgr0: 640x480 fmt[rgb] ... lcd output 640x480`（看 LCD 实际输出而不是 fb0/virtual_size——后者是运行时可变的 fb 配置，不等同于 LCD 物理分辨率，见 §8）
+  - `ssh root@DEVICE_HOST cat /sys/class/disp/disp/attr/sys` → `mgr0: 640x480 fmt[rgb] ... lcd output 640x480`（看 LCD 实际输出而不是 fb0/virtual_size——后者是运行时可变的 fb 配置，不等同于 LCD 物理分辨率，见 §8）
 - **备注**：SP 实物无 HDMI 输出口
+
+#### 7.1 主线 LCD 边缘回绕与修复（2026-10-04 实测）
+
+- 2026-10-04 Linux 7.2.3 下，TCON TOP 路由 `0x0651001c=0` 时出现左右约 1 像素回绕。保持相同 framebuffer 和时序，只改路由为 `0x20` 即恢复；还原路由可复现异常。
+- 已安装正式 `sun8i_tcon_top.ko` 修复并实际重启：开机自动为 `0x20`，未加载临时测试模块，用户确认“一切正常”。测试图边缘为最左红、最右白，内侧左绿右蓝。
+- 这是已验证的驱动路由问题。早期相位、HBP 与面板内部时序推断已由本次对照更新；详细证据和备份见 [LCD 工作记录](display-worklog.md#lcd-route-fix-20261003)。
+
+- 2026-10-10 已升级并重启到 Linux 7.2.9 #1，使用原生路由修复，寄存器为 `0x20`，无临时模块；用户再次确认正常测试图无边缘回绕。
 
 ### 8. 帧缓冲参数
 
-- **事实**：`fb0` 由 sunxi disp framebuffer 提供，**当前运行态实测**：virtual_size=1280×1024、bits_per_pixel=16、stride=2560（2026-05-20）。fb 虚拟尺寸与 bpp 由用户态启动时 ioctl 设置，**不等同于 LCD 物理分辨率**；LCD 实际仍为 640×480。
+- **事实**：`fb0` 由 sunxi disp framebuffer 提供，**原厂 BSP 历史实测**：virtual_size=1280×1024、bits_per_pixel=16、stride=2560（2026-05-20）。fb 虚拟尺寸与 bpp 由用户态启动时 ioctl 设置，**不等同于 LCD 物理分辨率**；LCD 实际仍为 640×480。
 - **保留物理帧缓冲**：cmdline 中 `disp_reserve=1228800,0x7bf24800` —— 1,228,800 字节 = 640×480×4，从 `0x7BF24800` 起预留一帧 RGBA8888 给 sunxi disp（位于 DRAM 顶部 ~1 GiB 边界附近）
 - **验证方式**：
-  - `ssh root@SP_HOST cat /sys/class/graphics/fb0/{virtual_size,bits_per_pixel,stride}`
-  - `ssh root@SP_HOST cat /proc/cmdline | tr ' ' '\n' | grep disp_reserve`
+  - `ssh root@DEVICE_HOST cat /sys/class/graphics/fb0/{virtual_size,bits_per_pixel,stride}`
+  - `ssh root@DEVICE_HOST cat /proc/cmdline | tr ' ' '\n' | grep disp_reserve`
   - LCD 真实输出看 `cat /sys/class/disp/disp/attr/sys`：`mgr0: 640x480 fmt[rgb] ... lcd output backlight(140) fps:60.2 640x480`
 - **备注**：先前记录的 "640×960 双缓冲 32bpp" 是另一时刻的 fb 配置，受运行时 fbset 影响会变；视为非稳定事实。
+
+**主线实测补记（2026-10-04）**：当前 `fb0` 为 `sun4i-drmdrmfb`，640×480、XRGB8888、pitch=2560；上述 sunxi disp、`disp_reserve` 和 `/sys/class/disp/` 查询属于原厂 BSP。当前 DRM 状态由 `/sys/kernel/debug/dri/1/state` 读取，卡号应按实际枚举确认。
 
 ### 9. 音频：codec @ 0x05096000，扬声器 PA 走 PMIC cldo1
 
@@ -83,8 +95,8 @@
   - codec 节点 `/proc/device-tree/soc@03000000/codec@0x05096000`，compatible = `allwinner,sunxi-snd-codec`
   - regulator_summary 显示 `5096000.codec` 同时消费 `axp2202-aldo4`（1.8V）与 `axp2202-cldo1`（3.3V）——推断 aldo4 为 codec 模拟/数字供电，cldo1 为扬声器 PA 供电
 - **验证方式**：
-  - `ssh root@SP_HOST cat /proc/device-tree/soc@03000000/codec@0x05096000/compatible`
-  - `ssh root@SP_HOST cat /sys/kernel/debug/regulator/regulator_summary | grep -A1 'aldo4\|cldo1'`
+  - `ssh root@DEVICE_HOST cat /proc/device-tree/soc@03000000/codec@0x05096000/compatible`
+  - `ssh root@DEVICE_HOST cat /sys/kernel/debug/regulator/regulator_summary | grep -A1 'aldo4\|cldo1'`
 - **备注（2026-05-20）**：设备运行态 DTS 中**没有** `allen_amp_power` 属性，也没有 `allen*` 命名节点；该字符串可能只存在于源码 DTS/驱动中（见 §10.4）。
 
 ### 10. PMIC：X-Powers AXP2202（BSP 名）≈ mainline AXP717（同一颗芯片，但驱动栈不同）
@@ -92,10 +104,10 @@
 - **事实**：物理同一颗 PMIC IC（i2c name=`axp2202`，DTS compatible=`x-powers,axp2202`）。BSP 内核（HandsomeMod / Anbernic 2025 树）使用 **私有 `axp2202-regulator` + `axp2101-regulator` 驱动栈**；mainline 内核使用 `axp20x` family 驱动并把该芯片识别为 **AXP717**。
 - **完整 regulator**：4×DCDC + 4×ALDO + 4×BLDO + 4×CLDO + CPUSLDO + RTCLDO + drivevbus + vmid
 - **验证方式**：
-  - `ssh root@SP_HOST cat /sys/bus/i2c/devices/5-0034/name`
+  - `ssh root@DEVICE_HOST cat /sys/bus/i2c/devices/5-0034/name`
   - 设备 DTS 中 `x-powers,axp2202` compatible
 - **重要修订（2026-05-20，对原"BSP 叫 AXP2202 = mainline 叫 AXP717"表述的纠正）**：
-  - 两个驱动栈**不是简单的名字映射**：在 `scripts/serial.log` 中搜索锚点 `axp2101-regulator` 可见 `Setting DCDC frequency for unsupported AXP variant` / `Error setting dcdc frequency: -22`。
+  - 两个驱动栈**不是简单的名字映射**：在 串口采集日志 中搜索锚点 `axp2101-regulator` 可见 `Setting DCDC frequency for unsupported AXP variant` / `Error setting dcdc frequency: -22`。
   - 此错误来自 BSP 自带的 `axp2101-regulator` 驱动在初始化阶段尝试设 DCDC 工作频率，但发现 chip variant 不在它支持表里——说明 BSP 内同时挂载了 `axp2101` 与 `axp2202` 两套驱动，且 variant ID/寄存器布局存在差异，最终由 `axp2202-regulator` 接管。
   - 含义：mainline porting 时，仅靠 `compatible = "x-powers,axp717"` 不一定能复现 BSP 完整功能集（如 fuel-gauge 校准值、private regulator constraints），需要对照 BSP 私有驱动的寄存器写入序列。
 
@@ -103,20 +115,20 @@
 
 - **事实**：SP 实际接出：USB OTG、SDIO（RTL8821CS WiFi，驱动 `8821cs.ko` 厂商 RTW 版，**非** mainline `rtl8xxxu`/`rtw88_8821cs`，详见 §18）、UART1（RTL8821CS BT，配合 `rtl_btlpm`）、LRADC（按键）。大部分 brief 项 SP 未引出
 - **验证方式**：
-  - `ssh root@SP_HOST ls /sys/class/net/`（实测有 **wlan0 与 wlan1** 两个 netdev，均挂在同一 SDIO 设备 mmc2:0001:1 下，对应 RTL8821CS STA + P2P/虚拟接口）
-  - `ssh root@SP_HOST ls /sys/class/bluetooth/`（hci0 存在 = BT）
-  - `ssh root@SP_HOST lsmod | grep -iE "8821|rtl_bt"`（确认现役驱动模块）
+  - `ssh root@DEVICE_HOST ls /sys/class/net/`（实测有 **wlan0 与 wlan1** 两个 netdev，均挂在同一 SDIO 设备 mmc2:0001:1 下，对应 RTL8821CS STA + P2P/虚拟接口）
+  - `ssh root@DEVICE_HOST ls /sys/class/bluetooth/`（hci0 存在 = BT）
+  - `ssh root@DEVICE_HOST lsmod | grep -iE "8821|rtl_bt"`（确认现役驱动模块）
   - 设备 DTS 中各节点 status
 
 ### 12. 安全：未启用 OPTEE
 
 - **事实**：cmdline `secure_os_exist=0`，未启用 OPTEE，可自由换内核
-- **验证方式**：`ssh root@SP_HOST cat /proc/cmdline | grep secure_os_exist`
+- **验证方式**：`ssh root@DEVICE_HOST cat /proc/cmdline | grep secure_os_exist`
 
 ### 13. Thermal：5 个 zone
 
 - **事实**：实测 zone 名为 `cpu_thermal_zone` / `gpu_thermal_zone` / `ve_thermal_zone`（视频引擎） / `ddr_thermal_zone` / `axp2202-battery`
-- **验证方式**：`ssh root@SP_HOST 'for f in /sys/class/thermal/thermal_zone*/type; do echo "$f: $(cat $f)"; done'`
+- **验证方式**：`ssh root@DEVICE_HOST 'for f in /sys/class/thermal/thermal_zone*/type; do echo "$f: $(cat $f)"; done'`
 - **备注**：mainline DTS 只声明 cpu_thermal + gpu_thermal，ve/ddr zone 是 BSP 私有
 - **硬件来源（H616 User Manual §2.2.6.7 + §3.10，逐字引用）**：
   - §2.2.6.7 Thermal Sensor Controller，第 4 项 bullet 原文：
@@ -141,7 +153,7 @@
   （电压值需通过 `/sys/kernel/debug/opp/...` 或 debugfs cpufreq_table 抓取，本次未单独验证；原表中的电压列保留供参考但已知频率列与现况不符。）
 
 - **验证方式**：
-  - `ssh root@SP_HOST cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies`
+  - `ssh root@DEVICE_HOST cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies`
   - 旧来源：`online_log/sys_kernel_debug_cpufreq_table`（与现役不同，可能是别一 build 的 OPP 表）
 
 ---
@@ -176,7 +188,7 @@
   | drivevbus | — | — | 0 | — | USB OTG VBUS（H616 USB 模块手册 §5.1 `usb_drv_vbus_gpio="axp_ctrl"` 路径，由 OTG 状态机按需开关） |
 
 - **验证方式**：
-  - `ssh root@SP_HOST cat /sys/kernel/debug/regulator/regulator_summary`
+  - `ssh root@DEVICE_HOST cat /sys/kernel/debug/regulator/regulator_summary`
 - **关键修正（对原条目）**：
   - 原表声称 dcdc1=核心、dcdc2=GPU、dcdc3=??? 全部 always-on——实测 dcdc1 确实绑 cpu0，但 dcdc2/dcdc3 在 regulator_summary 上**没有 consumer**（use=0），不能直接确认其用途
   - aldo1=sdc2 ✅；aldo4=5096000.codec ✅；cldo1=5096000.codec ✅；
@@ -191,12 +203,34 @@
 ### 16. 电池信息
 
 - **事实**：设计容量 3000 mAh，健康 Good，温度 30.0°C。状态/电压/电流为瞬时值，会随充放电变化（实测 2026-05-20：充电中、4.043V、CHARGE_FULL=3000 mAh、容量 65%、CC=1286 mA）。
-- **验证方式**：`ssh root@SP_HOST cat /sys/class/power_supply/axp2202-battery/uevent`
+- **验证方式**：`ssh root@DEVICE_HOST cat /sys/class/power_supply/axp2202-battery/uevent`
 
 ### 17. USB 电源信息
 
 - **事实**：在线，输入电流限制 2500 mA，最小电压 4200 mV
-- **验证方式**：`ssh root@SP_HOST cat /sys/class/power_supply/axp2202-usb/uevent`
+- **验证方式**：`ssh root@DEVICE_HOST cat /sys/class/power_supply/axp2202-usb/uevent`
+
+#### 17.1 RG35XX-SP mainline 7.2.3 USB VBUS 供电关系（2026-09-05）
+
+- SP DTS 中曾尝试将 `reg_usb_vbus`（PI16，固定 5 V）绑定到 H616 USB PHY，
+  但由于缺少 PI16 作为 USB VBUS 开关的硬件证据，该 `usb0_vbus-supply` 修改已撤销，
+  当前 DTS 不声明这条供电关系。
+- 当前设备 live device tree 保持：`/soc/usb@5100000/dr_mode = "peripheral"`。
+- 因此不应把 `regulator-usb-vbus` 是否存在或其 consumer 状态解释为 USB gadget
+  正常工作的必要条件；USB gadget 实测为 `configured`。
+- 启动日志仍有：
+
+  ```text
+  usb_phy_generic.1.auto: dummy supplies not allowed for exclusive requests (id=vbus)
+  ```
+
+  该设备由 `drivers/usb/musb/sunxi.c` 动态注册为 MUSB 的 generic transceiver，不是 DT 中的 H616 `5100400.phy`。因此该 warning 不能通过修改 DTS 中的 `usb0_vbus-supply` 消除，目前不影响 USB gadget、LCD、TF2 或 Cedrus 功能。
+- 复核命令：
+
+  ```bash
+  ssh root@DEVICE_HOST 'cat /sys/kernel/debug/regulator/regulator_summary'
+  ssh root@DEVICE_HOST 'cat /sys/class/udc/*/state'
+  ```
 
 ---
 
@@ -224,9 +258,9 @@
   | `rtl8723bs_*` / `rtl8723bu_*` / `rtl8188*` / `rtl8192*` / `rtl8712u.bin` 等 ~28 个 | `/lib/firmware/rtlwifi/` | 同上，Ubuntu firmware 包默认全装，与本机硬件无关 |
 
 - **验证方式**：
-  - `ssh root@SP_HOST lsmod | grep -iE "8821|8723|rtl|btusb|hci"`
-  - `ssh root@SP_HOST dmesg | grep -iE "rtl8821|rtlwifi|rtlbt"`
-  - `ssh root@SP_HOST ls /lib/firmware/rtlbt/ /lib/firmware/rtlwifi/ /lib/firmware/rtl_bt/`
+  - `ssh root@DEVICE_HOST lsmod | grep -iE "8821|8723|rtl|btusb|hci"`
+  - `ssh root@DEVICE_HOST dmesg | grep -iE "rtl8821|rtlwifi|rtlbt"`
+  - `ssh root@DEVICE_HOST ls /lib/firmware/rtlbt/ /lib/firmware/rtlwifi/ /lib/firmware/rtl_bt/`
 - **mainline porting 含义**：替换为 mainline `rtw88_8821cs` 或 `rtl8xxxu` 驱动时，需要的固件是 `rtw88/rtl8821c_fw.bin` 系列（不在当前 firmware 目录中），需另行安装。
 
 ---
@@ -255,8 +289,8 @@
   - kbase 通过暴露 `UK version` 数字（实测 11.17）声明它支持的 user-kernel 通信协议版本；libmali 在 dlopen 时通过 ioctl 协商，若版本不匹配则 fail
   - **r18p0 kbase 不能驱动 r20p0 libmali** —— **来源说明**：此断言在 ARM 公开的 Mali GPU driver 文档中**没有正式 release notes 列表**（ARM 历来不公开 Mali kernel driver 的逐版本变更细节，r10-r28 系列只发 source tarball）。结论来自社区/嵌入式厂商经验：rockchip/sunxi BSP 开发者在论坛和 git commit message 中多次报告 r18→r20 之间 `UK version` 跳变导致 libmali ioctl 协商失败。**严格按本文档来源规则归类：此条为"社区经验性约束"，未通过官方文档独立验证；实践上 Anbernic 用 r20p0 kbase 配 r20p0 libmali（实测可工作）即可规避**
 - **验证方式**：
-  - `ssh root@SP_HOST cat /sys/module/mali_kbase/version`
-  - `ssh root@SP_HOST ls -la /usr/lib/libmali*`
+  - `ssh root@DEVICE_HOST cat /sys/module/mali_kbase/version`
+  - `ssh root@DEVICE_HOST ls -la /usr/lib/libmali*`
 - **mainline porting 含义**：换用 mainline `panfrost` 驱动后整个 kbase + libmali 栈被替换为 Panfrost (kernel DRM) + Mesa (userspace OpenGL ES/Vulkan)，UK 协议问题不再存在；但 Panfrost 性能/兼容性是否能匹配 libmali blob 需另行评估
 
 ---
@@ -279,7 +313,7 @@
   | p7 | UDISK | 27,566,080 | 1,438,644,736 | 1.34 GiB | ext4 → /mnt/data |
 
 - **容量核对**：分区累计 = 2+0.03125+0.015625+0.0625+7+4+1.34 = **14.45 GiB**；卡总容量 `blockdev --getsize64 /dev/mmcblk0` = 15,552,479,232 B = **14.48 GiB**。差额 ≈ 36 MiB 前导（sunxi 标准 BOOT0/U-Boot raw 区）+ 末尾几 MiB GPT 备份头未分配，数学吻合。
-- **验证方式**：`ssh root@SP_HOST fdisk -l /dev/mmcblk0`、`blockdev --getsize64 /dev/mmcblk0p{1..7}`
+- **验证方式**：`ssh root@DEVICE_HOST fdisk -l /dev/mmcblk0`、`blockdev --getsize64 /dev/mmcblk0p{1..7}`
 - **备注**：
   - mmcblk0 是 TF1 卡槽（可拆卸热备份），mmcblk1 是 TF2（实测 59.5 GiB exFAT 用户 ROM 卡），**没有 eMMC**
   - p1 (2 GiB) 内并非游戏 ROM——Anbernic 的"Roms"分区只放系统级 BIOS/字体/语言包；用户 ROM 在 mmcblk1 上
@@ -318,8 +352,8 @@
     | `2_13b8800.dtb` | `fog_fj035fhd05_v1` | 640 | 未实测（时序变体 + USB/电池 wakeup 多了几项） |
 - **未确定**：`lcd_type` 取什么字符串值会选 dtb 1 或 dtb 2——选择逻辑在 `allen_get_lcd_type` 函数内（闭源 U-Boot 二进制），设备和官方 PDF 都没给出映射表。当前仅能确认 `lcd_type=old → dtb 0`。
 - **验证方式**：
-  - `ssh root@SP_HOST cat /proc/cmdline | tr ' ' '\n' | grep lcd_type`
-  - `ssh root@SP_HOST strings /dev/mmcblk0p4 | grep -E 'lcd_type|allen.*lcd|fj035fhd05|rg34xxsp'`
+  - `ssh root@DEVICE_HOST cat /proc/cmdline | tr ' ' '\n' | grep lcd_type`
+  - `ssh root@DEVICE_HOST strings /dev/mmcblk0p4 | grep -E 'lcd_type|allen.*lcd|fj035fhd05|rg34xxsp'`
   - 反编译各 dtb 看 `lcd_driver_name`/`lcd_x` 属性
 
 ---
@@ -328,7 +362,7 @@
 
 ### 24. BOOT0 / ATF / U-Boot 版本与 DRAM 训练
 
-- **事实**（2026-05-20 `scripts/serial.log` 重启实测）：
+- **事实**（2026-05-20 串口采集日志 重启实测）：
   - **BOOT0**：commit `ac58e911-dirty`，DRAM BOOT DRIVE INFO V0.651
   - **ATF (BL3-1)**：`v1.0(debug):5a77824`，Built `15:20:22, 2024-08-02`，commit 8 ——**注意 `(debug)` 标记**：这是 ATF 的 debug build（启用额外的 register dump、exception backtrace、verbose NOTICE/ERROR 输出），通常生产固件会用 `release` build。Anbernic 在出货固件中保留 debug ATF 对安全评估有意义：例如后续若考虑 secure boot/OPTEE，debug 构建会暴露更多调试信息
   - **U-Boot**：`2018.05 (Dec 25 2025 - 12:00:24 +0800) Allwinner Technology`（与 cmdline `uboot_message=2018.05(12/25/2025-12:00:24)` 一致）
@@ -336,14 +370,14 @@
   - **U-Boot 阶段 CPU/总线时钟**（来自同一行 U-Boot 直接 printf：`CPU=1008 MHz,PLL6=600 Mhz,AHB=200 Mhz, APB1=100Mhz  MBus=400Mhz`）：1008 / 600 / 200 / 100 / 400 MHz
 - **online_log build 历史值**：BOOT0 `749c1f9a-dirty`（与现役 `ac58e911-dirty` 不同 build）
 - **路线 C mainline 实测**（2026-05-22）：`SPL/BL31 v2.14.2` → `U-Boot 2026.04` → `Linux 7.0.9` 完整启动到 login（替换原厂 BOOT0/ATF/U-Boot 链路，SPL 写在 8KB 偏移，与原厂布局兼容）
-- **验证方式**：串口抓 BOOT0/ATF/U-Boot 日志（PH0/PH1 UART 115200）；在 `scripts/serial.log` 中搜索锚点 `BOOT0 commit`、`BL3-1`、`U-Boot 2018.05`、`DRAM CLK =`、`Starting kernel ...` 各阶段
+- **验证方式**：串口抓 BOOT0/ATF/U-Boot 日志（PH0/PH1 UART 115200）；在 串口采集日志 中搜索锚点 `BOOT0 commit`、`BL3-1`、`U-Boot 2018.05`、`DRAM CLK =`、`Starting kernel ...` 各阶段
 
 ### 25. 内核版本字符串
 
 - **事实**：
   - 原厂 #11：`Linux version 4.9.170 (flower@flower-B85M-D2V) (gcc version 5.3.1 20160412 (Linaro GCC 5.3-2016.05)) #11 SMP PREEMPT Wed Dec 24 23:14:11 CST 2025`
   - online_log #241：`Linux version 4.9.170 (cc@cc-H81M-S1) (gcc version 5.3.1 20160412 (Linaro GCC 5.3-2016.05)) #241 SMP PREEMPT Thu Apr 11 12:49:34 CST 2024`
-- **验证方式**：`ssh root@SP_HOST uname -a` 或串口 bootlog
+- **验证方式**：`ssh root@DEVICE_HOST uname -a` 或串口 bootlog
 
 ### 26. 串口日志中"原厂就有、可忽略"的错误
 
@@ -374,7 +408,7 @@
   - `proc: unrecognized mount option "hidepid=invisible"`（Linux 5.8+ 选项，4.9 不识别，回退）
 
 - **验证方式**：串口 bootlog 对照（原厂 #11 serial.log + online_log/bootlog）
-- **2026-05-20 重启实测对照**（`scripts/serial.log`，原厂 #11 build `ac58e911-dirty`）：
+- **2026-05-20 重启实测对照**（串口采集日志，原厂 #11 build `ac58e911-dirty`）：
   - 上表所有条目均在本次重启日志中再现。新增观察：
     - PMIC 探测序列中本次日志只看到 2 个 `[pmu]: bus read error` 然后直接 `PMU: AXP2202`，**未列出** `pmu_axp152_probe` / `pmu_axp1530_probe` 具体名字（这些只在更早的 build 或 BSP 详细日志里出现，与功能无关）
     - 新增可忽略错误：
@@ -409,7 +443,7 @@
 
 ### 10.2 DRAM 总线宽度（32-bit）的确认
 
-- **2026-05-20 已确认**：见 §5。`scripts/serial.log` 中 `[AUTO DEBUG]32bit,1 ranks training success!`、`Actual DRAM SIZE =1024 M`、`DRAM Type =8 (LPDDR4)` 三个锚点交叉确认 LPDDR4 / 32-bit / 1 GiB。
+- **2026-05-20 已确认**：见 §5。串口采集日志 中 `[AUTO DEBUG]32bit,1 ranks training success!`、`Actual DRAM SIZE =1024 M`、`DRAM Type =8 (LPDDR4)` 三个锚点交叉确认 LPDDR4 / 32-bit / 1 GiB。
 - **进一步硬件来源**：H700 brief（`2021070513595227.pdf`）明确写 `32-bit DDR4/DDR3/DDR3L/LPDDR3/LPDDR4 interface, supporting maximum capacity of 4GB`——即 H700/H616 die 本身只有 32-bit DRAM PHY，**不存在 64-bit 配成 32-bit 模式**的可能性。H616 User Manual §3.1 内存映射表中 `DRAM 0x40000000-0x13FFFFFFF (4G)` 也确认地址空间上限为 4 GiB（受 32-bit PHY × 32 Gbit 限制）。
 - **原问题已封闭**：物理 32-bit。
 
@@ -432,7 +466,7 @@
 - **现有验证**：源码 DTS + bootlog 中多处出现，与其他 Anbernic 内部代码证据（`cc@cc-H81M-S1` build host——见 §10.5 注：本机实测为 `flower@flower-B85M-D2V`，`cc@cc-H81M-S1` 仅出现在互联网公开的他人日志中）交叉印证
 - **2026-05-20 实测补充**：
   - 在设备 `/proc/device-tree` 中**未发现**任何 `allen*` 节点或属性
-  - 但 `scripts/serial.log`（实际重启日志）中确认 allen 字符串以 **U-Boot/Kernel printk** 形式存在：
+  - 但 串口采集日志（实际重启日志）中确认 allen 字符串以 **U-Boot/Kernel printk** 形式存在：
     - U-Boot：`--allen--PE_data[31:0] = 0x40,lcd_type = 0`
     - U-Boot：`===allen==: download_normal_boot0 L289`
     - Kernel earlycon：`allen_boe_lcd=0, str=old`
@@ -442,7 +476,7 @@
 
 ### 10.5 `deeplay` hostname 的确切含义
 
-- **2026-05-20 更新（基于本机串口实测）**：本机 `scripts/serial.log` 中 hostname 实测为 **`ANBERNIC`**（行 2: `Ubuntu 22.04 LTS ANBERNIC ttyS0`），**不出现 `deeplay`**。`deeplay` 字符串只见于互联网公开渠道（GitHub Gist 等）的**其他 H700 设备**串口日志——按本文档来源规则属"互联网搜索来源、默认不可信"，仅记录其存在性，不作为本机事实。
+- **2026-05-20 更新（基于本机串口实测）**：本机 串口采集日志 中 hostname 实测为 **`ANBERNIC`**（行 2: `Ubuntu 22.04 LTS ANBERNIC ttyS0`），**不出现 `deeplay`**。`deeplay` 字符串只见于互联网公开渠道（GitHub Gist 等）的**其他 H700 设备**串口日志——按本文档来源规则属"互联网搜索来源、默认不可信"，仅记录其存在性，不作为本机事实。
 - **互联网渠道推测（未独立验证）**：网上有人将 `deeplay` 与 `Deeplay-Keys` 输入映射 / 菜单中间件关联，但 `Deeplay-Keys` 未找到独立官网或公开信息；该实体与 Anbernic 的确切关系无法确认
 - **本机可能途径**：无公开途径独立验证
 
@@ -455,9 +489,9 @@
 
 ---
 
-## 十一、2026-05-20 ssh sp 验证摘要
+## 十一、2026-05-20 ssh root@DEVICE_HOST 验证摘要
 
-通过 `ssh root@SP_HOST`（hostname=ANBERNIC，原厂 #11 内核 build Wed Dec 24 23:14:11 CST 2025）对 §一-§九 共 27 条事实做了实测对照。结果：
+通过 `ssh root@DEVICE_HOST`（原厂 #11 内核 build Wed Dec 24 23:14:11 CST 2025）对 §一-§九 共 27 条事实做了实测对照。结果：
 
 ### 完全核实（无修改）
 
@@ -485,9 +519,9 @@
 - **#14 CPU OPP**：实测 **9 档**（480/720/936/1008/1104/1200/1320/1416/1512），不是表中的 8 档（缺 1032/1296，多 936/1008/1320）。原表来源 `online_log/sys_kernel_debug_cpufreq_table` 与现役 #11 内核不一致。
 - **#15 PMIC regulator → consumer 映射**：实测 dcdc2/dcdc3 **未挂 consumer**（与原表 "dcdc2=GPU 供电、dcdc3=always-on" 不符）；cldo4 在 regulator framework 上亦未绑定 consumer，仅 DTS 端有 `wlan_io_regulator` 字符串属性。dcdc1=cpu0、aldo1=sdc2、aldo4/cldo1=5096000.codec 三处确认。
 - **#16 电池**：状态/电压/电流是瞬时值（实测 4.043V / 充电中 / 65%）；设计容量 3000 mAh、温度 30.0°C、Health=Good 仍正确。
-- **§10.4 `allen_*` 标记**：补充实测 `/proc/device-tree` 中无 `allen*` 节点/属性；但 `scripts/serial.log`（实际重启日志）确认 allen 字符串以 U-Boot/Kernel printk 形式存在四处（LCD 探测、boot0 下载、earlycon LCD 选择、AXP PEK 探测），属于源码字符串而非 DT。
+- **§10.4 `allen_*` 标记**：补充实测 `/proc/device-tree` 中无 `allen*` 节点/属性；但 串口采集日志（实际重启日志）确认 allen 字符串以 U-Boot/Kernel printk 形式存在四处（LCD 探测、boot0 下载、earlycon LCD 选择、AXP PEK 探测），属于源码字符串而非 DT。
 
-### 2026-05-20 串口日志（`scripts/serial.log`）补充
+### 2026-05-20 串口日志（串口采集日志）补充
 
 通过实际触发一次 `reboot` 抓到完整的 BOOT0 → ATF → U-Boot → Kernel 启动日志（262 行），对原先标注"需串口"的条目补充确认：
 
@@ -509,7 +543,7 @@
 
 ## 十二、2026-05-20 H616 PDF 文档补强
 
-将 `doc/*.pdf`（H616 Datasheet V1.0、H616 User Manual V1.0、H700 brief、H616 USB module manual、H616 Android Q OTA Guide）全部转为文本（`pdf-text/*.txt`），针对 device-facts 中"硬件来源"层级的条目做了文档侧确认。
+将 官方数据手册（H616 Datasheet V1.0、H616 User Manual V1.0、H700 brief、H616 USB module manual、H616 Android Q OTA Guide）全部转为文本（数据手册转录），针对 device-facts 中"硬件来源"层级的条目做了文档侧确认。
 
 ### H700 ↔ H616 die 共用关系（首次拿到 SoC 厂商原始文档证据）
 

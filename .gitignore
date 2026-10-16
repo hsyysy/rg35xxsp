@@ -2,3 +2,10 @@ site/
 .venv/
 __pycache__/
 *.pyc
+
+# Private working environments
+.claude/
+.agents/
+.codex/
+.env
+.env.*

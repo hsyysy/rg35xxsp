@@ -10,9 +10,9 @@
 | **V1.1.5** | **`#13`** | **2026-05-22** | 2026-05-27 | `RG35XXSP-V1.1.5-CN16GB-260522.IMG` |
 
 - **内核版本**：始终为 `4.9.170 SMP PREEMPT`
-- **编译主机**：`flower@flower-B85M-D2V`（两个版本一致）
+- **编译主机**：`flower@flower-B85M-D2V`（两个版本一致，来自原厂内核版本字符串）
 - **编译器**：GCC 5.3.1 (Linaro GCC 5.3-2016.05)
-- **SDK 路径**（V1.1.5 kernel 暴露）：`/home/flower/cc_share/allwinner/h700/rg35xxsp/sdk/dynamic_standby/kernel/linux-4.9`
+- **SDK 路径**（V1.1.5 原厂 kernel 暴露）：`/home/flower/cc_share/allwinner/h700/rg35xxsp/sdk/dynamic_standby/kernel/linux-4.9`
 
 ---
 

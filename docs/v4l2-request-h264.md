@@ -2,12 +2,15 @@
 
 > 初始调查: 2026-05-26
 > 实施日期: 2026-06-03 ~ 2026-06-04
-> 最后更新: 2026-06-04
+> 最后整理: 2026-10-11（实验数据保留 2026-06-04 的版本与范围）
 > 目标: 在 RG35XX-SP (Allwinner H616) 上通过 FFmpeg v4l2-request API 使用 Cedrus VPU 硬件解码 H.264
 
 ---
 
-## 1. 当前状态
+## 1. 验证范围与当前待办
+
+以下成功结果针对 2026-06-04 的 **1280×720 测试视频**，不覆盖全部分辨率。当前设备已升级到 7.2.9，已确认 Cedrus 初始化，但没有重新进行完整视频回归。640×480 P 帧错误、DMA-BUF pitch 导入限制与播放性能仍按 [当前问题清单](issues.md#2026-10-11) 跟踪。
+
 
 | 层 | 状态 | 备注 |
 |---|---|---|
@@ -19,7 +22,7 @@
 | FFmpeg V4L2 controls 设置 | ✅ 成功 | SPS+PPS+decode_params+slice_params 通过 request API 设置成功 |
 | FFmpeg DRM frame 描述符 | ✅ 正确 | fd/size/bpl/dimensions 均正确 |
 | FFmpeg DMA-BUF transfer | ✅ 已修复 | `V4L2MediaReqDescriptor` 布局修复，`drm` 字段移至 offset 0 |
-| FFmpeg 实际解码输出 | ✅ 通过 | IDR + P 帧全部与软件 NV12 输出一致（前 8 帧 framemd5 MATCH） |
+| FFmpeg 实际解码输出 | ✅ 720p 样本通过 | 前 8 帧 framemd5 MATCH；640×480 P 帧存在反例，见 §3.8 |
 
 **阶段性结论: H.264 V4L2-request 硬件解码完整链路已跑通。DPB `reference_ts` 单位修复（×1000 转纳秒）后，IDR 和 P 帧参考帧查找均正常，前 8 帧硬件解码 NV12 输出与软件解码逐字节一致。**
 
@@ -27,7 +30,7 @@
 
 ## 2. 已完成的修改
 
-### 2.1 源码修改 (git commits `a4f0d63` ~ `9a88d48`)
+### 2.1 实验实现修改
 
 修改的文件:
 
@@ -35,7 +38,7 @@
 |---|---|
 | `v4l2_request_h264.h` | 将 `V4L2RequestContextH264` typedef 为 `V4L2RequestContextHEVC`，兼容共享基础设施 |
 | `v4l2_req_h264_vx.c` | 核心 H264 V4L2 控件实现（~1200 行） |
-| `v4l2_request_h264.c` | hwaccel 入口；dst_buffers 调整为 16，避免参考帧/输出队列压力 |
+| `v4l2_request_h264.c` | hwaccel 入口；历史曾设 dst_buffers=16；mpv 最终使用 8 规避 CMA 分配问题（§3.8） |
 | `h264_slice.c` | 添加 `CONFIG_H264_V4L2REQUEST_HWACCEL` 到 HWACCEL_MAX 和 format list |
 | `v4l2_req_dmabufs.c` | 添加 `/dev/dma_heap/default_cma_region` 到 DMA heap 搜索列表 |
 
@@ -129,7 +132,7 @@ Dst: ALL ZEROS              ← 解码输出为空（控件数据与 bitstream �
 1. cedrus 使用**单平面** API（`V4L2_BUF_TYPE_VIDEO_OUTPUT`），不是多平面
 2. QBUF 必须带 `V4L2_BUF_FLAG_REQUEST_FD` 标志绑定 request fd
 3. capture buffer 不需要带 request fd
-4. V4L2 request 管线完整走通，cedrus 驱动无问题
+4. V4L2 request 管线完整走通；不据此证明 Cedrus 所有分辨率和参考帧路径均无问题
 5. 输出 buffer 全零是因为测试用的 SPS/PPS 控件数据与实际 bitstream 不完全匹配（控件是从 FFmpeg debug 输出手动填的，不是从 bitstream 解析的）
 
 ### 3.2 FFmpeg SIGSEGV 现象（历史问题）
@@ -251,7 +254,7 @@ ref_ts = h264_timestamp_to_ns(ref_rd->timestamp);
 - `--ao=alsa` — ALSA 音频输出
 - `dst_buffers=8`（`v4l2_request_h264.c`）— CMA 碎片化 workaround
 
-**最终工作配置** (`/etc/mpv/mpv.conf`):
+**2026-06-04 工作配置** (`/etc/mpv/mpv.conf`，不表示本次重新核对了设备配置):
 ```
 hwdec=drm
 vo=gpu-next
@@ -274,7 +277,7 @@ framedrop=decoder
 - 1280x720 H.264 视频正常
 - framemd5 对比：首帧 MATCH，第二帧 MISMATCH
 - 可能原因：cedrus VPU 对特定宽度的 stride/对齐处理有差异
-- 待排查
+- 尚未记录最终修复；待在 7.2.9 对同一输入复测，优先比较解码帧，再检查显示导入。
 
 ---
 
@@ -302,16 +305,10 @@ FFmpeg 的 `v4l2_req_dmabufs.c` 原本只搜索 `/dev/dma_heap/linux,cma` 和 `/
 /dev/dma_heap/system
 ```
 
-### 4.4 快速验证脚本
+### 4.4 用户态依赖
 
-`scripts/apps/quick_build_ffmpeg.sh` — 增量编译脚本:
-```bash
-sudo ./quick_build_ffmpeg.sh                    # 增量编译
-sudo ./quick_build_ffmpeg.sh libavcodec/v4l2_req_h264_vx.o  # 单文件编译
-sudo ./quick_build_ffmpeg.sh --teardown         # 卸载 chroot
-```
-
-首次运行需 configure（较慢），之后增量编译只需几秒。
+本记录涉及定制 FFmpeg / mpv 实验实现。公开 BSP 只包含内核与配置适配，
+不提供该实验实现、私有构建脚本或直接测试程序；以下结论不表示发行版默认 FFmpeg 已支持同一链路。
 
 ---
 
@@ -319,18 +316,15 @@ sudo ./quick_build_ffmpeg.sh --teardown         # 卸载 chroot
 
 | 文件 | 路径 |
 |---|---|
-| H264 V4L2 实现 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_req_h264_vx.c` |
-| H264 hwaccel 入口 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_request_h264.c` |
-| H264 头文件 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_request_h264.h` |
-| H264 slice 注册 | `src/ffmpeg-v4l2-request/libavcodec/h264_slice.c` |
-| DMA heap 配置 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_req_dmabufs.c` |
-| HEVC 参考实现 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_req_hevc_vx.c` |
-| 共享基础设施 | `src/ffmpeg-v4l2-request/libavcodec/v4l2_request_hevc.c` |
-| 内核 cedrus 驱动 | `src/linux-7.0.9/drivers/staging/media/sunxi/cedrus/` |
-| cedrus 直接测试程序 | 设备上 `/root/cedrus/cedrus_test6.c`（V4L2 request API 裸调验证） |
-| 内核 V4L2 控件 | `src/linux-7.0.9/include/uapi/linux/v4l2-controls.h` |
-| 快速编译脚本 | `scripts/apps/quick_build_ffmpeg.sh` |
-| 构建日志 | `scripts/apps/log.txt` |
+| H264 V4L2 实现 | `FFmpeg 源码中的 libavcodec/v4l2_req_h264_vx.c` |
+| H264 hwaccel 入口 | `FFmpeg 源码中的 libavcodec/v4l2_request_h264.c` |
+| H264 头文件 | `FFmpeg 源码中的 libavcodec/v4l2_request_h264.h` |
+| H264 slice 注册 | `FFmpeg 源码中的 libavcodec/h264_slice.c` |
+| DMA heap 配置 | `FFmpeg 源码中的 libavcodec/v4l2_req_dmabufs.c` |
+| HEVC 参考实现 | `FFmpeg 源码中的 libavcodec/v4l2_req_hevc_vx.c` |
+| 共享基础设施 | `FFmpeg 源码中的 libavcodec/v4l2_request_hevc.c` |
+| 内核 cedrus 驱动 | `linux/drivers/staging/media/sunxi/cedrus/` |
+| 内核 V4L2 控件 | `linux/include/uapi/linux/v4l2-controls.h` |
 
 ---
 
@@ -349,13 +343,6 @@ ls -la /dev/dma_heap/
 # 检查 CMA 状态
 cat /proc/meminfo | grep Cma
 dmesg | grep -i cma
-
-# cedrus 直接测试（V4L2 request API 裸调，不依赖 FFmpeg）
-# 提取裸 H.264 流
-ffmpeg -i ~/video.mp4 -c:v copy -bsf:v h264_mp4toannexb -frames:v 1 -f h264 /tmp/test.h264
-# 编译并运行测试程序（设备上已有 /root/cedrus/cedrus_test6.c）
-gcc -O2 -o /root/cedrus/cedrus_test6 /root/cedrus/cedrus_test6.c
-/root/cedrus/cedrus_test6 /tmp/test.h264
 
 # FFmpeg hwaccel 基础测试
 ffmpeg -hwaccel drm -v verbose -i ~/video.mp4 -frames:v 30 -map 0:v:0 -f null -

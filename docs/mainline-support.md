@@ -1,17 +1,26 @@
 # RG35XX-SP 主线（mainline）支持细节
 
-> **来源等级声明**：本文档主要内容来自**对 mainline 源码树的静态检查**（TF-A lts-v2.14.2、U-Boot v2026.04、Linux 7.0.9 中的 `MAINTAINERS`、`configs/*defconfig`、`dts/`、`drivers/` 路径），属"源码侧二手分析"——不是设备实测、不是官方 PDF。
+> **来源等级声明**：本文档主体来自**对 mainline 源码树的静态检查**（TF-A lts-v2.14.2、U-Boot v2026.04、Linux 7.0.9 中的 `MAINTAINERS`、`configs/*defconfig`、`dts/`、`drivers/` 路径），属"源码侧二手分析"。后续明确标注日期和实测值的条目来自路线 C 设备验证。
 >
 > 凡是涉及设备 BSP 现状的事实（原厂 PMIC 驱动、Mali kbase 版本、DTB 三选一、boot.img 格式、CPU OPP、thermal zone 等），以 `device-facts.md` 为准；本文档遇到这类事实时只引用条目编号，不重述。
 >
-> 关于"mainline 能否直接驱动 SP" 的最终判断仍需实机烧录验证（截至最后更新日未做）。
+> 路线 C 已完成实机烧录和主要功能验证;本文保留的“待实机验证”章节是 2026-05-20 的原始静态分析基线,当前状态以 `mainline-guide.md` 和 `issues.md` 为准。
 
-> 最后更新：2026-05-20
-> 检查范围：TF-A lts-v2.14.2、U-Boot v2026.04、Linux 7.0.9
+> 最后更新：2026-10-16（同步公开构建基线；硬件记录截至 2026-10-11）
+> 检查范围：原始静态分析为 TF-A lts-v2.14.2、U-Boot v2026.04、Linux 7.0.9；RTC 实测为 Linux 7.2.3
 
 ---
 
-## 总览
+## 当前实机补记（2026-10-10）
+
+- 当前设备运行 Linux **7.2.9**，使用 vanilla 原生的 TCON TOP 路由修复；已部署新 Image、DTB 和对应模块，实际重启后用户确认显示正常。7.2.3 的正式模块回移修复已于 2026-10-04 验收。
+- LCD 边缘回绕由两个 mixer 同时选择 TCON0 触发；修复后开机自动形成 `mixer0→TCON0、mixer1→TCON2`，路由寄存器为 `0x20`。实际重启后未加载临时修正模块，用户确认正常测试图无回绕。
+- 7.2.3 init commit 已包含这个驱动缺陷。项目板级适配的 HBP 修改不构成本次回绕的完整修复；详细对照和上游依据见 [LCD 工作记录](display-worklog.md#lcd-route-fix-20261003)。
+- 当前使用 7.2.9 base，等 7.3 正式发布后迁移；下文保留的旧版本代码及“屏未 wire”属于原始静态分析。
+
+当前另已完成[启动告警清理](boot-warning-cleanup.md)与[日志配置复核](kernel-debug-branches.md)。
+
+## 原始源码检查总览（2026-05-20）
 
 | 组件 | 源码版本 | H616/H700 平台 | RG35XX-SP 板级 | 构建目标 |
 |---|---|---|---|---|
@@ -23,7 +32,7 @@
 
 ## TF-A（ARM Trusted Firmware）
 
-**源码**：`tfa_src/lts-v2.14.2/`
+**源码**：[TF-A 源码](https://github.com/ARM-software/arm-trusted-firmware/tree/lts-v2.14.2)
 
 ### 平台支持
 
@@ -61,7 +70,7 @@
 
 ## U-Boot
 
-**源码**：`uboot_src/u-boot-2026.04/`
+**源码**：[U-Boot 源码](https://github.com/u-boot/u-boot/tree/v2026.04)
 
 ### 平台支持
 
@@ -116,7 +125,7 @@ RG35XX-SP 无独立 MAINTAINERS 条目。
 
 ## Linux Kernel
 
-**源码**：`linux_src/linux-7.0.9/`
+**源码**：Linux 7.0.9（原始静态检查基线）
 
 ### DTS 文件
 
@@ -228,7 +237,7 @@ AXP717 PMIC 不在 SoC dtsi 中定义，在板级 DTS（2024/plus）中声明。
 
 | 驱动 | 配置 | 状态 |
 |---|---|---|
-| PCF8563 RTC | `CONFIG_RTC_DRV_PCF8563=m` | defconfig 已启用 |
+| PCF8563 RTC | `CONFIG_RTC_DRV_PCF8563=y` | defconfig 给 `=m`，**不够**：i2c client 到 ~11.5s 才 probe，sun6i 早已抢到 id 0，PCF8563 变 rtc1 就永远匹配不上 `CONFIG_RTC_HCTOSYS_DEVICE="rtc0"`。rg35xxsp.config 改 builtin + sp.dts 加 aliases;Linux 7.2.3 实测 PCF8563 在 ~1.32s 注册为 rtc0 并设置系统 UTC（issues.md P2-6） |
 | Panfrost GPU | `CONFIG_DRM_PANFROST=m` | defconfig 已启用 |
 | DE mixer | `CONFIG_DRM_SUN8I_MIXER=m` | defconfig 已启用 |
 
@@ -240,7 +249,7 @@ AXP717 PMIC 不在 SoC dtsi 中定义，在板级 DTS（2024/plus）中声明。
 CONFIG_DRM_SUN8I_MIXER=m          # 显示引擎
 CONFIG_DRM_PANFROST=m             # GPU
 CONFIG_SND_SUN50I_CODEC_ANALOG=m  # 音频 codec
-CONFIG_RTC_DRV_PCF8563=m          # 外置 RTC
+CONFIG_RTC_DRV_PCF8563=m          # 外置 RTC —— 必须在 rg35xxsp.config 覆盖成 =y
 ```
 
 ### MAINTAINERS
@@ -269,11 +278,11 @@ CONFIG_RTC_DRV_PCF8563=m          # 外置 RTC
 
 ---
 
-## 当前差距（mainline 直接可用性）
+## 历史静态差距（2026-05-20，非当前待办）
 
-> 以下"可直接工作"判断基于：mainline 源码侧驱动/DTS 存在性检查 + 与 `device-facts.md` 中 BSP 侧已验证硬件存在的交叉。**未经实机烧录验证**。
+> 以下列表保留 2026-05-20 的静态分析基线;除单独标注后续实测的条目外,当时均未经实机烧录验证。当前整机状态以 `mainline-guide.md` 和 `issues.md` 为准。
 
-### 源码侧已具备（待实机验证）
+### 源码侧已具备（2026-05-20 静态分析基线）
 
 - CPU / SMP 4 核（device-facts.md §1 实测设备有 4 核）
 - PMIC（mainline AXP717）：regulator / battery / USB power（BSP 侧硬件存在见 §10/§15/§16/§17）
@@ -283,13 +292,13 @@ CONFIG_RTC_DRV_PCF8563=m          # 外置 RTC
 - UART0 console（BSP 侧 PH0/PH1，见 `device-facts.md §19`）
 - 音频 codec（BSP 侧 0x05096000，见 `device-facts.md §9`）
 - GPU（Panfrost）
-- 外置 RTC（PCF8563）
+- 外置 RTC（PCF8563）—— 2026-09-05 已在 Linux 7.2.3 实机验证:rtc0、`hctosys=1`、早期 hctosys 和 UTC 用户态链路均正常
 - Lid switch
 - 状态 LED、按键
 
-### 需要额外工作的
+### 当时预计需要额外工作的（部分判断已被后续实测更正）
 
-1. **屏不亮**：mainline DTS 中 `&spi0`（panel SPI 命令通道）、`&tcon0`（时序控制器）、`&de`（显示引擎）、`backlight` 节点均未 wire——这是纯 DTS 层面的缺失，驱动本身已有（NV3052C）
+1. **屏不亮**：mainline DTS 中 `&spi0`（panel SPI 命令通道）、`&tcon0`（时序控制器）、`&de`（显示引擎）、`backlight` 节点均未 wire——原静态分析曾低估为纯 DTS 缺失；后续实际完成 DE33 驱动、dtsi、板级 DTS 和 Kconfig 四层适配，LCD 已验收
 2. **Panel 驱动选择**：mainline 的 `panel-newvision-nv3052c.c` 可用，但 Batocera 用的是 `panel-mipi-dpi-spi`（更灵活）。如果用 mainline NV3052C 驱动，需确认初始化序列与实际屏模组完全匹配——设备侧屏只有厂商代号 `fog_fj035fhd05_v1`（见 `device-facts.md §7`），与 NV3052C/WL-355608-A8 的对应关系**未独立验证**
 3. **DE3.3 高级特性缺失**：SmartColor 3.3、AFBC、HDR EOTF、keystone、6 通道 alpha blend——这些在 mainline 的 sun8i_mixer 中未实现，对掌机游戏场景影响有限
 4. **视频解码降级**：cedrus 仅基础 H.264/H.265，无 4K@60、无 VP9 profile2、无 AVS2

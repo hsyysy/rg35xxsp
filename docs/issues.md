@@ -1,9 +1,29 @@
-# RG35XX-SP 路线 C(完全主线)二期问题清单
+# RG35XX-SP 主线问题清单与历史记录
 
-> 一期完成时间:2026-05-20 22:xx,串口登录成功(`Linux ANBERNIC 7.0.9 #1 SMP PREEMPT aarch64`)。
+> 一期完成时间:2026-05-20 22:xx,串口登录成功(`Linux DEVICE 7.0.9 #1 SMP PREEMPT aarch64`)。
 > 本文件按"阻塞优先级 × 子系统"组织,每项给出 **证据 / 假设原因 / 验证方式**。
 
 ---
+
+## 当前待办与验收范围（2026-10-11）
+
+当前源码和设备均为 Linux 7.2.9。下文保留日期明确的历史修复过程；“实现完成”“人工验收待补”“已接受限制”分别记录，不再用总完成率代替验收范围。文档整理后另完成启动警告清理、部署和整机重启复验，见[清理记录](boot-warning-cleanup.md)。
+
+| 项目 | 当前状态 | 下一步 / 证据 |
+|---|---|---|
+| LCD 点亮、左右边缘回绕 | **已关闭** | 7.2.9 原生路由修复，重启和用户视觉验收通过；P0-3 |
+| LCD 测试与 menu 交接 | **已验收** | 三平面、64 个格式组合，Start 返回 menu；[显示记录](display-worklog.md) |
+| LCD console 日志 | **已处理，重启复验通过** | fbcon bind=0，menu stdout 为 journal socket；[主线指南](mainline-guide.md#lcd-控制台输出2026-10-11) |
+| H.264 640×480 P 帧错误 | **历史未解决，待 7.2.9 复测** | 720p 成功不能覆盖全部分辨率；[解码记录](v4l2-request-h264.md#38-mpv-2026-06-04) |
+| 视频 DMA-BUF 导入、掉帧和同步 | **历史待调查 / 优化** | 720×540 pitch 导入失败及部分播放问题未记录最终修复；[H.264 记录](v4l2-request-h264.md) |
+| DE33 NV12 直扫、硬件缩放 | **当前能力缺口** | 7.2.9 未公布 YUV，scaler_mask=0；六项缩放组合返回 ERANGE。旧实验补丁不代表当前正式驱动能力 |
+| USB Host / OTG | **待适配与实机验收** | USB gadget/SSH 已工作；Host 外设供电与 PHY 配置仍待验证；P1-9、I-1 |
+| 音频、音量按键 | **驱动 / 服务已实现，人工验收记录待补** | ALSA 枚举与服务运行有记录；本清单未保存 7.2.9 听音及实体音量键改变音量的验收结果；P0-6、P1-22 |
+| 刷卡分项更新 | **公开流程待完善** | 当前公开 BSP 提供构建产物，部署流程需按介质布局准备；P2-4 |
+| 刷写自动备份与回退 | **流程缺口** | 尚无公开通用自动流程；P2-5 |
+| PWM 调光、MPEG-2 / VP8 request 硬解 | **可选增强** | 不阻塞当前 RGB 显示和已验证的 H.264/HEVC 路径 |
+| 启动 warnings | **已复核并清理可修项** | 7.2.9 #2 重启后由 16 条降为 5 条；GPIO/DMA/写保护/networkd 已修，剩余限制分类保留；[清理记录](boot-warning-cleanup.md) |
+| 蓝牙 / KASLR / 模拟摇杆 | **弃用 / 不修 / 不适用** | 保留原决定，不列入待修列表 |
 
 ## P0 — 缺核心功能(影响日常可用)
 
@@ -14,14 +34,14 @@
   2. defconfig 加 `CONFIG_RTW88_8821CS=m`(+ SDIO/8821C 依赖链)
   3. firmware:`/lib/firmware/rtw88/rtw8821c_fw.bin` from linux-firmware
 - **验证**(2026-05-21):`wlan0` 起来,真 MAC `XX:XX:XX:XX:XX:XX` 从 eFuse 读;`wlan0: associated` 已连 AP
-- 详见 `内核 git 中` 和 `src/linux-7.0.9/kernel/configs/rg35xxsp.config`
+- 配置见公开 BSP 的 `configs/rg35xxsp.config`
 
 ### P0-2 蓝牙 — **2026-05-21 已弃用,不再编译**
 
 > 之前(同日早些时候)标注 "完全解决" 是错误的:只验证到 `hci0 sysfs 节点出现` 和 `BD_ADDR 可读`,没验证业务命令(inquiry/scan)。深入排查后发现 mainline 7.0.9 对 RTL8821CS BT 支持不完整,任何业务操作都会让 chip 自挂,**连带 WiFi 一起挂**(`rtw88_8821cs: failed to send h2c command`)。掌机不依赖 BT,决定直接弃用。
 
 #### 弃用动作(2026-05-21)
-- `src/linux-7.0.9/kernel/configs/rg35xxsp.config`:`CONFIG_BT=n`,所有 `BT_HCIUART*` / `BT_RTL` / `BT_BNEP` 注释掉(默认 disable 跟着走)
+- `configs/rg35xxsp.config`:`CONFIG_BT=n`,所有 `BT_HCIUART*` / `BT_RTL` / `BT_BNEP` 注释掉(默认 disable 跟着走)
 - 设备 ssh 操作:
   1. `systemctl disable rtl8821cs-bt-rebind.service` + `rm /etc/systemd/system/rtl8821cs-bt-rebind.service`(此 unit 是临时 workaround,见下方"诊断过程"小节)
   2. `rm -rf /lib/firmware/rtl_bt/`(`rtl8821cs_fw.bin` + `rtl8821cs_config.bin` + vendor 遗留 `rtlbt_config`)
@@ -29,7 +49,7 @@
 
 #### 诊断过程(为何弃用,留存便于后续复跑或换 kernel 时参考)
 
-**当前症状(ssh 实测)**:
+**2026-05-21 诊断症状（历史实测，蓝牙现已禁用）**:
 - boot 后 `/sys/class/bluetooth/` 是空,hci0 不存在
 - 手动 `unbind` + `bind` 一次后,hci0 创建,firmware 加载成功(`fw version 0x75b8f098`),DOWN
 - 立即 `hciconfig hci0 up`(抢在 udev/bluez 之前)→ `UP RUNNING`,Features/Local Version 都读到
@@ -48,12 +68,20 @@
 - A. patch `hci_h5.c` 加 `realtek,rtl8821cs-bt` 到 `rtl_bluetooth_of_match[]`,指向 `h5_data_rtl8822cs`
 - B. patch `btrtl_set_quirks` 给 8821CS 系列 set `HCI_QUIRK_NON_PERSISTENT_SETUP`
 - C. 排查 firmware load 后 inquiry 不工作的原因(baudrate 1.5M 是否真达到 / config bin 字段)
-- D. 升级到 mainline 6.13+ 原生支持 8821CS,或 backport
+- D. 若未来恢复蓝牙，核对目标内核的 RTL8821CS 支持与业务命令；旧建议“升级到 6.13+”不适用于已运行 7.2.9 的设备，也不是经验证的修复。
 
 #### 现状
 路线 C 二期不再花精力在 BT 上。`rg35xxsp.config` 已显式 `CONFIG_BT=n`,下次 rebuild kernel BT 整个子系统不编译。
 
-### P0-3 屏 — ✅ **DRM card0 已创建,屏已点亮(2026-05-22)**
+### P0-3 屏 — ✅ **已关闭：点亮及边缘回绕修复验收通过（2026-10-10）**
+
+**2026-10-10 收尾：根因确认、上游修复、7.2.9 部署与重启视觉验收均已完成，LCD 边缘回绕问题关闭。**
+
+- TCON TOP 两路 mixer 均选中 TCON0（`0x0651001c=0`）触发约 1 像素回绕。仅分离路由为 `0x20` 即恢复，往返对照可复现。
+- 正常测试图最终验收通过：最左红、最右白，内侧左绿右蓝。上游修复 `62bac3202042a8cfd4d4969a6d057cebd8b7cc1a` 已含于 `v7.3-rc1`；该缺陷在项目 init commit 中已存在。
+- 2026-10-04 经用户随后授权，已替换当时设备正式 `sun8i_tcon_top.ko` 并备份原模块；实际重启后路由自动为 `0x20`，未加载临时模块，2026-10-04 用户确认重启后“一切正常”，视觉验收通过。当时保留 **7.2.3 base** 并计划待 7.3 正式版再迁移；随后按用户决定先迁移至 7.2.9。旧 7.2.3 release 模块包未同步修复，勿用于回退覆盖。
+- 2026-10-10：已从 7.2.9 vanilla 新仓库移植 23 个适配提交，原生保留 LCD 路由修复；Image、DTB 与 1633 个模块完整构建通过，已部署并重启到 `7.2.9 #1`。原生路由 `0x20`，未加载临时模块，用户确认正常测试图无边缘回绕。7.2.3 启动文件已备份，旧模块树保留；见 [部署日志](display-worklog.md#deploy-7-2-9-20261010)。
+- 详见 [LCD 工作记录](display-worklog.md#lcd-route-fix-20261003)。以下点屏记录为历史状态。
 
 > 详细研究/调试/决策过程见 `display-worklog.md`(完整活文档,~700 行)。本条目只保留最终摘要。
 
@@ -80,7 +108,7 @@
 | 调试设施 | `sun4i_drv.c` 加 7 个 `pr_info` tracepoint + `CONFIG_DRM_DEBUG_DRIVER=y` |
 | 最终产物 | `out/{Image.gz,sun50i-h700-anbernic-rg35xx-sp.dtb}` + modules.tar.gz(20 MB) |
 
-**当前状态**([源:实测] dmesg + sysfs):
+**2026-05-22 点亮状态（历史实测）**:
 - `panel_newvision_nv3052c` / `sun4i_drm` / `sun4i_tcon` / `sun8i_tcon_top` / `sun8i_mixer` 全部 probe ✓
 - `sun4i_drv_bind` → `component_bind_all` → `drm_dev_register` 完整成功链路 ✓
 - `/sys/class/drm/card0` + `card0-Unknown-1` 已创建 ✓
@@ -90,7 +118,7 @@
 
 **后续升级**(可选):
 - 方案 B:PWM 背光(亮度可调)— Batocera 0005/0006/0007 三个 patch
-- 方案 C:HDMI 双路 — Batocera 0002 子 patch 05/06/09/20 四个 patch
+- HDMI 双路属于通用 H700 参考方案；RG35XX-SP 没有 HDMI 输出口，不列为本机待办。
 
 **关联文档**:
 - `display-worklog.md` — 完整活文档(四层审计/Batocera patch 清单/方案对比/GPIO 走线/LCD 时序/BSP 数据/启动 BSP 决策/component bind 调试/根因分析/进展日志)
@@ -111,43 +139,32 @@
 
 ### P0-5 cpufreq — ✅ **已解决(2026-05-23 实测)**
 
-- **2026-05-23 实测**([源:实测] ssh sp):`/sys/devices/system/cpu/cpu0/cpufreq/` 全部存在
+- **2026-05-23 实测**([源:实测] ssh root@DEVICE_HOST):`/sys/devices/system/cpu/cpu0/cpufreq/` 全部存在
   - `scaling_available_frequencies`:480000 720000 1008000 1032000 1104000 1200000 1416000 1512000(8 档 OPP)
   - `scaling_governor`:schedutil(默认)
 - **已修复**:`rg35xxsp.config` 的 `CONFIG_ARM_ALLWINNER_SUN50I_CPUFREQ_NVMEM=y`(builtin)生效
 
-### P0-6 audio — ✅ **声卡已创建(2026-05-23 实测)**
+### P0-6 audio — **驱动与用户态配置已完成，听音验收记录待补**
 
 - **2026-05-23 实测**([源:实测] serial.log):声卡已 probe,且 headphone jack input 已注册
   - `input: H616 Audio Codec Headphone Jack as /devices/platform/soc/5096000.codec/sound/card0/input3`
   - systemd `Save/Restore Sound Card State` 服务正常启动
-- **仍待验证**:`aplay -l` 确认用户态可见;实际播放声音
+- **后续记录**：主线指南已记录 ALSA 卡名修正和默认 aplay 配置；7.2.9 部署确认音频驱动及 ALSA 声卡枚举正常。原始“aplay -l 待验证”不再作为驱动缺失；实体扬声器 / 耳机听音的人工验收记录仍待补，未据此认定声音存在故障。
 - **已修复**:`rg35xxsp.config` 的 `CONFIG_SND_SUN4I_CODEC=m` + 模块自动加载生效
 
 ### P0-7 电池 / USB power — ✅ **已工作(2026-05-23 实测)**
 
-- **2026-05-23 实测**([源:实测] ssh sp):
+- **2026-05-23 实测**([源:实测] ssh root@DEVICE_HOST):
   - `axp20x-battery`:type=Battery, status=Discharging, capacity=90%, voltage=3.989V, current=430mA ✓
   - `axp20x-usb`:type=USB, present=0, online=0(USB 未插入,正常) ✓
   - `/sys/class/power_supply/axp20x-{battery,usb}/` 全部 sysfs 属性可读
 - **关于 DMA mask warning**:dmesg 仍有 `DMA mask not set`(P1-2),但 **不影响功能** — 旧假设"probe 失败"被实测推翻
 - **已修复**:`rg35xxsp.config` 的 `CONFIG_AXP20X_POWER=m` + `CONFIG_BATTERY_AXP20X=m` 模块自动加载生效
 
-### P0-8 ~~`poweroff` 后无法用 RESET / 电源键唤醒~~ — **2026-05-20 实测:电源键长按能起,正常硬件行为,降级为文档项 P2-7**
+### P0-8 poweroff 后 RESET 不能开机 — **已关闭：正常硬件行为**
 
-补充(2026-05-21 用户澄清):**RESET 按钮的设计本就是"开机状态下的 SoC 复位",不是"关机状态下的唤醒"**。掌机 RG35XX-SP 关机后必须用电源键的 PWRON 路径唤醒 AXP717,这是正确硬件设计,完全不是 bug。
-
-- **证据**(2026-05-20 实测):`poweroff` 后,按 RESET 按钮无反应,设备无法重启
-- **分析**:
-  - TF-A v2.14.2 `plat/allwinner/sun50i_h616/sunxi_power.c` 有 AXP717 支持(`x-powers,axp717` 检测 + I2C 路径 + `axp_setbits(0x27, BIT(0))` 关机命令),所以 PSCI SYSTEM_OFF 本身**应该**走通
-  - 但 RESET 按钮通常只复位 SoC,**不能唤醒 AXP717**。AXP717 进 standby 后,wake source 应为 PWRON pin(电源键)或 vbus 上电
-  - 待确认:RG35XX-SP 电源按键 GPIO 是否真接到 AXP717 PWRON,还是仅作为 GPIO 给 kernel 用(若后者,kernel 关了就死锁)
-- **当前救援**:长按电源 ≥ 10s + 插 USB-C;最终拆机断电池 JST 5s 再插
-- **一期临时绕开**:**避免用 `poweroff`,用 `reboot`**(走 PSCI SYSTEM_RESET → watchdog,不动 PMIC)
-- **二期工作**:
-  1. 用万用表/原理图确认电源键 → AXP717 PWRON 走线
-  2. 若没接 PWRON,kernel 实现电源键 long-press → 写 AXP717 0x27(避开 TF-A 关机路径)
-  3. 或加 RTC alarm wake / vbus wake 作 fallback
+- 2026-05-20 最初将关机后 RESET 无法唤醒误判为故障；随后实测电源键长按可开机，2026-05-21 用户确认 RESET 只用于开机状态下复位 SoC。
+- 关机后通过电源键 PWRON 唤醒 PMIC 属正常设计。撤销旧的“避免 poweroff”、拆电池救援及追加唤醒补丁建议，不作为当前待办。
 
 ---
 
@@ -166,14 +183,15 @@
 - **验证**(2026-05-21 重启后):`dmesg | grep "missing .modinfo"` 空,WiFi/BT/cpufreq/audio/battery 全保留
 - **释放空间**:~30 MB
 
-### P1-2 AXP 子驱动 `DMA mask not set` warnings
+### P1-2 AXP 子驱动 `DMA mask not set` warnings — **已修复（2026-10-11 重启实测）**
 
 - **证据**:
   - `platform axp717-adc: DMA mask not set`
   - `platform axp20x-usb-power-supply: DMA mask not set`
   - `platform axp20x-battery-power-supply: DMA mask not set`
-- **假设原因**:mainline 这几个 platform device 没在 driver init 里调 `dma_coerce_mask_and_coherent()`,但实际不走 DMA。属上游小毛病,不影响功能。
-- **验证方式**:确认电池 SOC / USB power 在 `/sys/class/power_supply/` 下有读数。
+- **已确认根因**：MFD core 用 I2C 父设备的 NULL `dma_mask` 覆盖了 `platform_device_alloc()` 初始化的默认 mask；原先猜测子驱动应调用 `dma_coerce_mask_and_coherent()` 不准确。
+- **修复**：父设备有 mask 时继承，否则保留 platform 默认值；提交 `90b3fdf`。
+- **验证**：7.2.9 #2 实际重启后三条警告均消失，电池 SOC、USB 电源及电压读数正常；详见[清理记录](boot-warning-cleanup.md)。
 
 ### P1-3 `pwrseq_simple` probe 失败 `-ENOENT` — ✅ **已解决(2026-05-23 实测)**
 
@@ -184,17 +202,17 @@
 - **修复**:U-Boot defconfig 加 `CONFIG_ENV_IS_NOWHERE=y` + `# CONFIG_ENV_IS_IN_FAT is not set`
 - **验证**(2026-05-23 serial.log):启动日志中 `Unable to read "uboot.env"` 已消失
 
-### P1-5 binfmt_misc — ✅ **修复入队(2026-05-23)**
+### P1-5 binfmt_misc — **配置已纳入构建，服务验收记录待补**
 
 - **根因**:`CONFIG_BINFMT_MISC` 未设置
 - **修复**:`rg35xxsp.config` 加 `CONFIG_BINFMT_MISC=y`
-- **验证**(下次 rebuild):`ls /proc/sys/fs/binfmt_misc/` 应存在;`systemctl status systemd-binfmt.service` 应正常
+- **补验收记录**：`ls /proc/sys/fs/binfmt_misc/` 应存在;`systemctl status systemd-binfmt.service` 应正常
 
-### P1-6 SO_PASSSEC — ✅ **修复入队(2026-05-23)**
+### P1-6 SO_PASSSEC — **配置已纳入构建，运行验收记录待补**
 
 - **根因**:`CONFIG_SECURITY_NETWORK` 未设置,`net/core/sock.c` 中 `SO_PASSSEC` 被 `IS_ENABLED(CONFIG_SECURITY_NETWORK)` gate
 - **修复**:`rg35xxsp.config` 加 `CONFIG_SECURITY_NETWORK=y`
-- **验证**(下次 rebuild):`dmesg | grep "SO_PASSSEC failed"` 应消失
+- **补验收记录**：`dmesg | grep "SO_PASSSEC failed"` 应消失
 
 ### P1-7 `aldo3: disabling` — ✅ **非 bug,已关闭(2026-05-23)**
 
@@ -203,6 +221,7 @@
 
 ### P1-8 `vcc-pl not found, using dummy regulator`
 
+- **当前状态（2026-10-11）**：7.2.9 #2 仍出现。供电连接未确认，保留现状，不凭猜测绑定电源。
 - **证据**:`sun50i-h616-r-pinctrl 7022000.pinctrl: supply vcc-pl not found, using dummy regulator`
 - **尝试修复失败**(2026-06-06): 启用 `reg_aldo1` + 添加 `&r_pio { vcc-pl-supply = <&reg_aldo1>; };` → 导致 17 个 pinctrl "Error applying setting" → MMC 全部 probe 失败 → 启动挂死。已回滚。
 - **原因推测**: ALDO1 可能实际给其他关键供电域供电,不能随便启用;或需确认 ALDO1 在此板的真实走线
@@ -211,26 +230,27 @@
 ### P1-9 `usb_phy_generic: dummy supplies not allowed for exclusive requests (id=vbus)`
 
 - **证据**:`[ 1.313] usb_phy_generic usb_phy_generic.1.auto: dummy supplies not allowed for exclusive requests (id=vbus)`
-- **原因**:USB OTG vbus regulator 在 DTS 没 wire(原厂 BSP 是 AXP `drivevbus` GPIO 控制 vbus,见 `device-facts.md §17`,mainline DTS 可能未对接)。
-- **影响**:USB host 模式可能没 vbus → 插 U 盘可能不上电。一期不要 USB,记下。
+- **当前确认的日志来源（2026-10-11）**：sunxi MUSB 注册的兼容 NOP transceiver 请求可选 vbus；exclusive 请求找不到电源时打印警告并返回 ENODEV，generic 驱动允许该结果。实际 PHY 由独立 sun4i 驱动管理；此前推测此日志等于板级 OTG 电源未接，并未证实。
+- **当前范围**：USB gadget CDC ECM 与 SSH 已验证；Host 外设供电未完成验收。旧 vbus warning 不足以单独证明 Host 根因，须结合当前 PHY、dr_mode 与实际供电测量。
 
 ### P1-10 DT dependency cycle warnings(CCU ↔ RTC)
 
+- **当前状态（2026-10-11）**：此次 7.2.9 启动日志未重现，以下为历史记录。
 - **证据**:`/soc/clock@3001000: Fixed dependency cycle(s) with /soc/rtc@7000000`(及 7010000 互相,共 12 行)
 - **原因**:mainline sun50i-h616.dtsi 中 `clock@3001000` (CCU) 与 `rtc@7000000` (sun6i-rtc) 和 `clock@7010000` (R-CCU) 之间引用环。kernel `Fixed` 自动解,但上游可以更整洁。
 - **影响**:无功能影响,只是 dmesg 噪声。
 
-### P1-11 `phy phy-5100400.phy.0: Changing dr_mode to 1`
+### P1-11 `phy phy-5100400.phy.0: Changing dr_mode to 1` — **历史 warning，当前未重现**
 
 - **证据**:`[ 1.309] phy phy-5100400.phy.0: Changing dr_mode to 1`(切到 OTG/host)
 - **原因**:DTS 默认 `dr_mode = "otg"` 被运行时改成 host。注意一致性。
-- **配对问题**:跟 P1-9 是一对——dr_mode 切了,但 vbus regulator 没接。
+- **当前状态（2026-10-11）**：7.2.9 DTB 确认 USB=peripheral，两次启动日志均无此项。Host 待办统一见 P1-9、I-1。
 
 ### P1-12 ~~用户态有"每 30 秒 drop_caches"后台脚本~~ — ✅ **已解决(2026-05-23 rebuild rootfs 时自动消失)**
 
 - **原始证据**:`[ 32.327] sh (336): drop_caches: 3`...,每 30 秒一次
 - **根因**:BSP 原厂 rootfs 有 systemd service 定期 `echo 3 > /proc/sys/vm/drop_caches`
-- **修复**:`rootfs_mk.sh` 重建 rootfs 后该 service 不再存在,dmesg 无 `drop_caches` 输出,`systemctl list-timers` 无相关条目
+- **修复**:重建 rootfs 后该 service 不再存在,dmesg 无 `drop_caches` 输出,`systemctl list-timers` 无相关条目
 
 ### P1-13 KASLR 未启用 — ❌ **Won't fix(2026-05-23)**
 
@@ -241,28 +261,29 @@
 
 - **验证**(2026-05-23 serial.log):`failed to get reset usb0` 不再出现。commit `6a291bb29` 生效。
 
-### P1-17 `dw-apb-uart ...: Error applying setting, reverse things back` — **已知 cosmetic,暂不修复(2026-05-23)**
+### P1-17 `dw-apb-uart ...: Error applying setting, reverse things back` — **历史记录，当前未重现（2026-10-11）**
 
 - **证据**([源:实测] serial.log):uart0/uart1 两处报错,pinctrl 框架回退
 - **分析**:sunxi pinctrl 驱动不支持 DW UART 请求的某个 generic pin config 参数。pinmux-pins debug 确认 PH0/PH1 correctly muxed to uart0, PG6-9 correctly muxed to uart1。UART 功能完全正常(ttyS0 console, ttyS1 注册)
 - **影响**:纯 cosmetic,无功能影响
-- **决定**:暂不修复。需上游 `drivers/pinctrl/sunxi/pinctrl-sunxi.c` 增加对缺失 pin config 参数的支持
+- **历史决定**：当时暂不修复。当前 7.2.9 清理前后日志均无此项，不列为现存故障；未为此新增 UART 补丁。
 
-### P1-18 `cfg80211: loaded regulatory.db is malformed` — **已知,接受(2026-05-23)**
+### P1-18 `cfg80211: loaded regulatory.db is malformed` — **历史记录，当前未重现（2026-10-11）**
 
 - **尝试修复失败**:关闭 `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB` 会导致 `verify_pkcs7_signature` 符号从内核消失,cfg80211 模块编译失败
 - **原因**:Kconfig 有 `default y` 且无 prompt(除非 `CFG80211_CERTIFICATION_ONUS=y`),无法通过 rg35xxsp.config 关闭
 - **影响**:WiFi 关联正常(`wlan0: associated`),仅使用 world regulatory domain(可能限制发射功率/信道)
-- **决定**:接受此 warning,不修复。对掌机 WiFi 使用无实质影响
+- **当前复核**：设备已有配对的 `regulatory.db` 与签名；7.2.9 清理前后均无 malformed 警告，WiFi 关联与 DHCP 正常。本次未修改签名校验配置或固件，也未逐信道验收发射功率。
 
-### P1-19 `gpiochip*: Static allocation of GPIO base is deprecated` (×4) — **2026-05-23 新发现**
+### P1-19 `gpiochip*: Static allocation of GPIO base is deprecated` — **已修复（2026-10-11 重启实测）**
 
 - **证据**([源:实测] serial.log L223/224/243/245):
   - `gpio gpiochip0: Static allocation of GPIO base is deprecated, use dynamic allocation.` ×3
   - `gpio gpiochip1: Static allocation of GPIO base is deprecated, use dynamic allocation.` ×1
 - **原因**:内核 GPIO 子系统已废弃静态 GPIO base 分配,但 H616 pinctrl 驱动(`sun50i-h616-pinctrl`/`sun50i-h616-r-pinctrl`)仍在使用旧 API
 - **影响**:纯 cosmetic,无功能影响
-- **修复**:上游 `drivers/pinctrl/sunxi/pinctrl-sunxi.c` 需改为动态分配。非阻塞,等上游合入
+- **修复**：提交 `90b3fdf` 将 sunxi GPIO base 改为动态分配，同时将四处硬件引脚计算切回描述符 pin_base，避免硬件编号依赖全局 GPIO 编号。
+- **当前实测**：7.2.9 原有两条警告在 #2 重启后均消失；GPIO 消费者、TF2、WiFi、背光和 LCD 自检正常。上述 ×4 是旧启动记录，不是当前计数。
 
 ### P1-20 TF2 卡槽(第二 SD 卡)未识别 — ✅ **已解决(2026-05-23 实测)**
 
@@ -286,7 +307,7 @@
 ### P2-1 ~~README 缺路线 C 完整章节~~ — ✅ **已解决(2026-06-06)**
 
 - 路线 C 已单列为推荐路线
-- 目录结构更新: `scripts/` 替代 `build/c/`, 脚本名已同步
+- 构建入口见公开 BSP 仓库与主线指南
 - Mainline 支持表已更新(Display/VPU 标 ✅, BT 标 ⚠️ 弃用)
 
 ### P2-2 ~~device-facts 应补充 mainline 实测条目~~ — ✅ **已解决(2026-06-06)**
@@ -297,34 +318,74 @@
 
 ### P2-3 ~~P5 模块清理~~ — ✅ **已解决(2026-06-06)**
 
-- **修复**: `rootfs_update.sh` 清理阶段自动删除旧 BSP 4.9.x 模块目录 + `mali_kbase.ko`
+- **修复**: rootfs 清理阶段自动删除旧 BSP 4.9.x 模块目录 + `mali_kbase.ko`
 - 见 P1-1（2026-05-21 手动清理过设备，现纳入脚本自动化）
 
-### P2-4 `flash_sd.sh` 补 `--uboot-only` / `--p2-only` 子模式
+### P2-4 刷卡增量 / 分项更新 — **公开流程待完善**
 
-- 调试 U-Boot 改动时,目前要么手动 dd,要么跑全 flow 浪费时间(每次都把 modules.tar.gz 重解一次,20 MB I/O)。增量模式:
-  - `--uboot-only`:只 dd `u-boot-sunxi-with-spl.bin` 到 sector 16
-  - `--p2-only`:只重写 p2(摆 Image.gz / dtb / extlinux)
-  - `--modules-only`:只装 modules 到 p5
+公开 BSP 提供内核、启动固件和模块构建产物。应根据实际卡布局分别部署启动文件与模块；
+独立的刷卡子模式不作为当前公开工具能力。构建与布局说明见[主线指南](mainline-guide.md)。
 
-### P2-5 备份策略漏洞
+### P2-5 刷写备份与回退 — **尚无公开通用自动流程**
 
-- 当前 `device-backup/` 在 `out/` 下,首次执行 `flash_sd.sh` 才生成。
-- 一旦误删 `device-backup/`,后续 `--rollback` 不可用且无法重新生成(原始数据已被覆盖)。
-- 建议:把 `device-backup/prehead-36m.bin` + `p2-orig.tar` **拷一份到仓库版本控制位置**(如 `device/c-route-baseline/`)或 git-annex。
+开发阶段有单次升级的备份与回退验证，不能将其当作公开自动化功能或原厂整卡恢复方案。
+通用校验、设备外备份和回退流程仍待整理。
 
-### P2-6 ~~RTC 双时源问题~~ — ✅ **已解决(2026-06-06)**
 
-- **根因**: sun6i-rtc(rtc0,无电池) vs PCF8563(rtc1,有纽扣电池),默认 hwclock 写 rtc0 → 掉电归零
-- **修复**:
+### P2-6 RTC 双时源问题 — ✅ **已解决(2026-09-05 实机验证)**
+
+#### 一次修复(2026-06-06)——只改了用户态,不成立
+
+- **当时的根因认识**: sun6i-rtc(rtc0,无电池) vs PCF8563(rtc1,有纽扣电池),默认 hwclock 写 rtc0 → 掉电归零
+- **当时的修复**:
   1. udev 规则 `/etc/udev/rules.d/99-rtc-pcf8563.rules`: `SYMLINK+="rtc"` 让 `/dev/rtc → rtc1`
-  2. `/etc/adjtime` 指定 `/dev/rtc1`
-- **验证**: `/dev/rtc → rtc1` ✓, `hwclock --systohc` 写入 rtc1 ✓
-- 已写入 `rootfs_config.sh` 自动部署
+  2. `/etc/adjtime` 第 4 行写 `/dev/rtc1`
+- **当时的验证**: `/dev/rtc → rtc1` ✓, `hwclock --systohc` 写入 rtc1 ✓
+- **为什么不成立**: 验证只覆盖了用户态。`/dev/rtc` 和 `hwclock` 是用户态路径;**开机时间不由 hwclock 决定**,而是内核 `rtc_hctosys()` 读 `CONFIG_RTC_HCTOSYS_DEVICE`("rtc0" = sun6i)。所以掉电停走的那块芯片依然决定开机时间,改动等于没生效。另外 `/etc/adjtime` 第 4 行 `/dev/rtc1` 是**无效的** —— hwclock 的 adjtime 解析只用前 3 行 + `UTC|LOCAL`,真正起作用的是 udev 符号链接。
+
+#### 暴露方式(2026-09-05)
+
+`ssh root@DEVICE_HOST 'pacman -Syu'` 失败:
+
+```
+error: failed retrieving file 'extra.db' from mirrors.sjtug.sjtu.edu.cn :
+SSL certificate ... certificate is not yet valid or the system clock is incorrect (9)
+```
+
+系统时间 `Sep 01 06:26 UTC`,真实时间 `Sep 05 02:38 UTC` —— 慢 3 天 20 小时,SJTU 镜像新签发的 Let's Encrypt 证书还没到 `notBefore`。
+
+#### 完整根因(三条叠加)
+
+1. **内核用错芯片**: `CONFIG_RTC_{HCTOSYS,SYSTOHC}_DEVICE="rtc0"` = sun6i,无电池掉电停走。开机 dmesg 实测:`sun6i-rtc 7000000.rtc: setting system clock to 2026-09-01T14:22:09 UTC` —— 取到 4 天前的值。同一时刻 PCF8563 里的日期是正确的 Sep 5(它一直在走)。
+2. **PCF8563 `=m` 导致编号错位,永远匹配不上 "rtc0"**: `rtc-pcf8563 0-0051: registered as rtc1` 在 `[11.56s]`,而 sun6i 是 builtin platform driver,`[0.96s]` 就 probe 完并用 `ida_alloc()` 抢到 id 0。注意 `rtc_hctosys()` **不是 initcall**,而是在 `class.c:433` 的 `__devm_rtc_register_device()` 里按名字匹配触发:`if (!strcmp(dev_name(&rtc->dev), CONFIG_RTC_HCTOSYS_DEVICE)) rtc_hctosys(rtc);` —— 注册成 rtc1 就等于这段代码对它永不执行。
+3. **timesyncd 被禁用**: 历史 rootfs 配置中有 `systemctl disable systemd-timesyncd.service`,于是这 4 天误差没有任何东西纠正。
+
+附带发现:`/etc/adjtime` 写 `LOCAL` 会让 systemd 开机 `warp_clock()` 减 480 分钟并置内核 `persistent_clock_is_local=1`,使内核 11 分钟同步往 rtc0 写**本地时间**(实测 `rtc0_raw=11:30:25` vs `UTC=03:30:24`)。两块 RTC、两个维护者、两种时间基准。
+
+#### 二次修复(2026-09-05)
+
+1. `rg35xxsp.config`: `CONFIG_RTC_DRV_PCF8563=y`(builtin。编号靠下面的 aliases 钉死,builtin 的作用是让 hctosys 发生在 `[~1s]` 而非 `[~11.5s]`,否则 systemd 头 11 秒都在用错误时钟跑。前置 `CONFIG_I2C=y` + `CONFIG_I2C_MV64XXX=y` 已满足)
+2. `sun50i-h700-anbernic-rg35xx-sp.dts`: 加 `aliases { rtc0 = &rtc_ext; rtc1 = &rtc; }` 把 PCF8563 钉成 rtc0。**两个节点都要给 alias** —— `class.c:rtc_device_get_id()` 先试 `of_alias_get_id()` 再 `ida_alloc()`,只给一个的话 sun6i(platform drv,先 probe)会抢到 id 0
+3. 用户态配置： 删掉 `99-rtc-pcf8563.rules`(PCF8563 成 rtc0 后,udev 自带 `ATTR{hctosys}=="1"` 规则会自动指过去;**若保留该规则会把 `/dev/rtc` 反指到 sun6i,更糟**);`/etc/adjtime` 改 `UTC` 并去掉无效的第 4 行
+4. 用户态配置： 改回 `systemctl enable systemd-timesyncd`,并配置适合目标网络的 NTP 服务器
+
+#### 顺带纠正的一个错误结论
+
+排查中曾因 `hwclock` 默认打开 `/dev/rtc`(→ rtc1)而误判"`CONFIG_RTC_SYSTOHC=y` 在这块板子上空转"。实测证伪:直接对 rtc0 拨慢 20 分钟,内核在 6 分钟后纠正(11 分钟模式正常工作)。**内核 SYSTOHC 无问题,此前是测错了芯片。**
+
+#### 实机验证(2026-09-05, Linux 7.2.3)
+
+- 连续重启验证:`rtc0 = rtc-pcf8563 0-0051`,`hctosys=1`;`rtc1 = sun6i-rtc 7000000.rtc`,`hctosys=0`;`/dev/rtc -> rtc0`
+- 启动日志:`[1.317992] rtc-pcf8563 0-0051: registered as rtc0`,`[1.324442] ... setting system clock to 2026-09-05T07:40:01 UTC`;不再由 sun6i-rtc 设置系统时间
+- `/etc/adjtime` 为 `UTC`;RTC 原始值 `2026-09-05 07:41:59` 与同秒系统 UTC 一致;不再出现 `RTC configured in localtime, applying delta of 480 minutes`
+- `systemd-timesyncd` enabled + active,实测连接 `ntp2.aliyun.com` (`203.107.6.88`)并完成初始同步
+- 已删除旧 `/etc/udev/rules.d/99-rtc-pcf8563.rules`;临时兜底 `rtc-sync.service` / `rtc-sync.timer` 已 disable、删除,再次重启仍正常
+- **部署注意**：只更新内核、模块和固件不会自动应用 RTC 的用户态配置；需在目标 rootfs 中单独配置并验证。
+- **后续观察(不阻塞关闭)**:断电静置数小时后开机,比较 RTC 与真实 UTC,量化 PCF8563 漂移率;若持续异常则排查晶振/负载电容硬件
 
 ---
 
-### P1-21 H616 Cedrus VPU 硬解 — ✅ **HEVC + H.264 均已通(2026-06-04)**
+### P1-21 H616 Cedrus VPU 硬解 — **HEVC / H.264 基础链路已通，部分视频兼容性仍待处理**
 
 - **目标**:启用 H616 VPU (video-codec@1c0e000) 实现 H.264/H.265 硬解
 - **内核层**(2026-05-24 完成):
@@ -366,14 +427,14 @@
   - MPEG-2:老游戏视频/DVD 等复古内容,内核控件最简单(3 个),实现量最小
   - VP8:WebM 视频/部分模拟器场景,内核只有 1 个控件但结构体较大
   - 两者内核 UAPI + cedrus 驱动均已就绪,只差 FFmpeg 端 hwaccel 对接
-- **待完成**:
-  1. 掉帧优化 — 可能需要调显示刷新率或 vsync 策略
-  2. mpv 启动参数优化 — `--vo=gpu --gpu-context=drm --hwdec=auto` 写入 menu.conf
-  3. MPEG-2 / VP8 v4l2-request hwaccel(可选,优先级较低)
+- **已配置**：2026-06-04 已记录 `/etc/mpv/mpv.conf` 使用 `hwdec=drm`、`vo=gpu-next`、`gpu-context=drm`、`profile=fast`；不再保留“将 hwdec=auto 写入 menu”旧待办。历史验证中 auto 未自动检测 request 硬解。
+- **尚未记录解决**：640×480 H.264 P 帧损坏、720×540 DMA-BUF pitch 导入失败，以及部分播放掉帧 / 音画同步问题；先在当前 7.2.9 复测，区分解码输出与显示导入。详见 [H.264 记录](v4l2-request-h264.md) 和 [H.264 记录](v4l2-request-h264.md)。
+- **当前能力限制**：正式 DE33 驱动不公布 NV12 和硬件缩放；旧实验中临时暴露格式、写 CSC 或扩展 guard 的成功不代表这些改动已纳入当前驱动。
+- **可选增强**：MPEG-2 / VP8 v4l2-request hwaccel；低优先级。
 
 ---
 
-### P1-22 音量按键不调节 ALSA 音量 — ✅ **已修复(2026-05-24)**
+### P1-22 音量按键调节 ALSA — **服务已实现，实体按键验收记录待补**
 
 - **现象**: `gpio-keys-volume` 已注册,但按音量键不会改变实际播放音量。
 - **根因**: 当前路线 C 是最小 console/systemd rootfs,没有桌面/session 音量守护进程消费 `KEY_VOLUMEUP/DOWN` 事件。
@@ -383,17 +444,17 @@
 - **修复**:
   - 新增 `/usr/local/bin/volume-buttond`:自动查找名为 `gpio-keys-volume` 的 event 节点,用 `evtest` 监听 `KEY_VOLUMEUP/DOWN`,调用 `amixer -c 0 set DAC 3%+/- unmute`
   - 新增 `volume-buttond.service`,已在设备 `sp` 上 `enable --now`
-  - 已同步写入 `rootfs_mk.sh`,后续重建 rootfs 会自动带上该服务
+  - 服务属于用户态配置，制作 rootfs 时需单独准备
 - **验证**:
   - `systemctl status volume-buttond.service`:active/running
   - `ps`:服务正在运行 `evtest /dev/input/event1`
-  - 待人工按键确认:按音量 +/- 后 `amixer -c 0 sget DAC` 应变化
+  - **人工验收待补**：记录实体音量 +/- 的 DAC 数值变化及实际音量变化。已有运行服务与 evtest 进程记录，不等于完成了实体按键和听音验收，也未据此认定当前按键失效。
 
 ---
 
 ## 待调查 — 不确定但应该早看
 
-### I-1 USB-OTG / Host 模式 — **已查(2026-05-20)**
+### I-1 USB-OTG / Host 模式 — **gadget 已验证，Host 仍待验收**
 
 - 结果:`/sys/class/udc/*/state = not attached`,只有 EHCI/OHCI 自带 root hub。**当前没插任何 USB 设备**,无法判断 host 模式实际是否工作。
 - 后续:插 U 盘试一次。若不上电 → 确认 P1-9 vbus regulator 缺失。
@@ -419,7 +480,7 @@
 
 ---
 
-## 一期完成确认
+## 历史一期完成确认（2026-05-20）
 
 | 子系统 | 状态 |
 |---|---|
@@ -431,20 +492,18 @@
 | 4 核 SMP + PSCI(无路线 A 的 RCU stall) | ✅ |
 | root 登录、shell 可用 | ✅ |
 
-**已完成 P0 (7/7)**:P0-1(WiFi)✅ P0-2(BT/弃用)✅ P0-3(屏)✅ P0-4(GPU)✅ P0-5(cpufreq)✅ P0-6(audio)✅ P0-7(电池)✅
+## 状态汇总（2026-10-11）
 
-**P1 已修复 (11 项)**:P1-1(.modinfo)✅ P1-3(pwrseq)✅ P1-4(uboot.env)✅ P1-5(binfmt)✅ P1-6(SO_PASSSEC)✅ P1-7(aldo3)✅ P1-12(drop_caches)✅ P1-16(USB PHY)✅ P1-20(TF2)✅ P1-21(Cedrus VPU)✅ P1-22(volume keys)✅
-
-**P1 cosmetic (7 项)**:P1-2/8/9/11/17/18/19 👁️ (P1-10 已被 fw_devlink=off 抑制)
-
-**P1 won't fix (2 项)**:P1-13(KASLR)❌ P1-14(摇杆/SP无此硬件)❌
-
-**P2 已解决 (6/6)**:P2-1(README)✅ P2-2(device-facts)✅ P2-3(模块清理)✅ P2-4(--incremental)✅ P2-5(备份)✅ P2-6(RTC)✅
+- **已关闭 / 已验证的主要项**：WiFi 基础联网、LCD 点亮及边缘路由、GPU、cpufreq、电池、TF2、RTC、USB gadget；各项验证日期和版本以正文为准，7.2.9 并未重新测试全部外设。
+- **实现完成但验收记录待补**：音频听音、实体音量键、binfmt 服务、SO_PASSSEC 运行表现。
+- **仍有功能或流程工作**：视频兼容与性能、DE33 NV12 / 缩放、USB Host、刷卡分项模式、自动备份与回退。P2-1/2/3/6 已完成，P2-4 部分完成，P2-5 通用流程未完成。
+- **已接受 / 可选 / 不适用**：蓝牙弃用、KASLR 不修、无模拟摇杆；PWM 调光和 MPEG-2 / VP8 硬解为增强项。旧 warnings 需复核后再计为当前问题。
+- 历史总数“P0 7/7、P2 6/6”与上述范围不符，已撤销；当前待办以本文开头表格为准。
 
 **本期新增成就**:
-- USB gadget CDC ECM (10.1.1.3, systemd 持久化, SSH 双通道)
+- USB gadget CDC ECM (网络地址按使用环境配置)
 - TF2 卡槽 (PE4/PE22, 59.5 GB SDXC)
 - 音频默认设备修复 (asound.conf audiocodec→Codec)
 - 音量按键直控 ALSA DAC 音量(volume-buttond)
 - SSH config USB/WiFi 自动切换
-- flash_sd.sh / deploy_ssh.sh 均改为 rsync 增量
+- 构建与部署属于不同步骤，公开入口见主线指南。

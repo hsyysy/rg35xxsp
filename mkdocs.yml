@@ -56,8 +56,14 @@ nav:
   - 开发日志:
     - rootfs 固件清单: rootfs-prep.md
     - LCD 调试日志: display-worklog.md
+    - 启动告警清理: boot-warning-cleanup.md
+    - 启动日志配置: kernel-debug-branches.md
     - H264 V4L2 研究: v4l2-request-h264.md
     - 问题记录: issues.md
     - 验证报告: verification-report.md
   - 调研:
     - BSP 内核源码搜索: bsp-kernel-source-search.md
+
+validation:
+  links:
+    anchors: warn

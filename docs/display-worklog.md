@@ -5,6 +5,8 @@
 
 ---
 
+> **2026-10-10 收尾：LCD 左右边缘回绕问题已关闭。根因是 TCON TOP 双 mixer 路由冲突，已通过同图、同时序单变量往返对照确认。7.2.9 原生包含上游修复，已部署并实际重启，路由自动为 `0x20`，未加载临时模块；用户确认正常测试图无回绕。后续升级按正常显示回归检查执行，详见 §99；旧日志中“改 HBP 已解决”的结论不适用于本次问题。**
+
 ## 00. 来源等级约定(2026-05-22 加)
 
 文档中事实/判断按以下五档标注来源,可靠度由高到低:
@@ -12,7 +14,7 @@
 | 标 | 含义 | 可靠度 | 典型 |
 |---|---|---|---|
 | `[源:厂商]` | 一手 — Allwinner / Anbernic 官方文档、原厂二进制(boot.img / DTB / U-Boot 字符串)、SoC datasheet、原厂 BSP kernel image 内含符号 | 最高 | H616 Datasheet、p4 dtb 抠出的 `lcd_driver_name` |
-| `[源:实测]` | 一手 — `ssh sp` 直读 `/sys /proc /dev/mem`、dd raw 分区、dmesg、串口日志、设备物理测量 | 高 | 当前 cmdline、`/sys/kernel/debug/pinctrl/...` 输出 |
+| `[源:实测]` | 一手 — `ssh root@DEVICE_HOST` 直读 `/sys /proc /dev/mem`、dd raw 分区、dmesg、串口日志、设备物理测量 | 高 | 当前 cmdline、`/sys/kernel/debug/pinctrl/...` 输出 |
 | `[源:社区]` | 二手 — linux-sunxi wiki、Batocera / ROCKNIX、kernel 上游 commit、GitHub 公开仓 | 中 | Batocera 0002 patch、linux-sunxi H616 wiki |
 | `[源:推断]` | 二手 — 我们综合多个来源推出的结论 / 跨设备类比 | 低 | 不同信息合并、未单独验证的因果 |
 | `[源:假设]` | 二手 — 未经任何证据支持,仅作工作前提 | 待证 | 上电前的「应该可用」类判断 |
@@ -21,40 +23,44 @@
 
 ---
 
-## 0. 当前状态(快照,每次更新都覆盖此节)
+## 0. 当前状态(2026-10-10)
+
+下表的当前版本与验收状态已更新。带旧 commit、旧版本或里程碑日期的条目保留其历史含义；最新完整证据见 [路由修复记录](#lcd-route-fix-20261003)。
 
 | 项 | 状态 |
 |---|---|
-| 阶段 | ✅ **屏亮！TTY 登录界面可见(§99 #10). P0-3 完成。** |
+| 阶段 | ✅ 7.2.9 已部署；原生 TCON TOP 路由修复，2026-10-10 重启后用户验收通过。 |
 | 选定方案 | A(LCD-only + GPIO 背光,后续再升 PWM) |
 | Panel 版本 | ✅ **v1**(`fog_fj035fhd05_v1`,640×480 — [源:厂商] p4 BSP dtb 实测;[源:实测] 用户 2026-05-22 二次确认物理分辨率) |
 | GPIO 走线 | ✅ 5+1 个 GPIO 与 Batocera DTS 一致([源:厂商] p4 dtb `lcd_gpio_N` × [源:社区] Batocera 0002,见 §8) |
 | LCD 时序(dtsi 侧)| ✅ 全部抠出([源:厂商] p4 dtb,见 §8.2) |
 | H616 CCU clocks | ✅ 全齐(§4.6) |
-| H616 SRAM-C 控制器 | ⚠️ 走 a64 fallback,待上电验证(§4.7) |
-| Mainline panel 时序 | ✅ 已 fork `fog_fj035fhd05_v1_panel_info` + 新 compatible `anbernic,rg35xx-sp-panel`(commit `36df6ca2b`,§4.8) |
+| H616 SRAM-C 控制器 | 使用 a64 fallback；当前显示通路已通过实机验证。§4.7 为早期风险分析。 |
+| Mainline panel 时序 | ✅ 已 fork `fog_fj035fhd05_v1_panel_info` + 新 compatible `anbernic,rg35xx-sp-panel`(§4.8) |
 | Batocera patch 应用 | ✅ `git mailsplit + git am -3` 应用 11 个子 patch 全部干净(§99 #5) |
-| Build break #1 | ✅ 修复 — sun8i_(vi|ui)_layer_init_one 跨模块调用需 EXPORT_SYMBOL_GPL(commit `5e33755d1`) |
-| Build break #2 | ✅ 修复 — `sun8i_mixer ↔ sun50i_planes` 模块循环 → 合并到 sun8i-mixer.ko(commit `7f7708164`) |
-| KERNELRELEASE 干净度 | ✅ `7.0.9`(关 LOCALVERSION_AUTO + `LOCALVERSION=""` 压 `+`;commit `22f398040` + rg35xxsp.config + build_kernel.sh) |
+| Build break #1 | ✅ 修复 — sun8i_(vi|ui)_layer_init_one 跨模块调用需 EXPORT_SYMBOL_GPL |
+| Build break #2 | ✅ 修复 — `sun8i_mixer ↔ sun50i_planes` 模块循环 → 合并到 sun8i-mixer.ko |
+| KERNELRELEASE 干净度 | 开发基线与设备均为 `7.2.9`。构建显式传 `LOCALVERSION=`，模块版本须与目标内核一致。 |
 | AXP717 cldo3 | ✅ enabled 3.3V(§4.10) |
 | Panel reset 极性 | ✅ active-low,一致(§4.10) |
-| NV3052C SPI init 序列 | ✅ 兼容 — `wl_355608_a8_panel_regs[]` 直接可用,TTY 显示正常(§99 #10 实测) |
-| **产物** | `out/{Image.gz,sun50i-h700-anbernic-rg35xx-sp.dtb}` + `modules.tar.gz`(20 MB,路径 `/lib/modules/7.0.9/`)|
+| NV3052C SPI init 序列 | 已从原厂 Image 重定位与反汇编恢复，前 189 对命令/数据与当前初始化数组完全一致；sleep-out 延迟位置差异另记。 |
+| **产物** | 7.2.9 Image、DTB 与全量模块已构建并部署。旧 7.2.3 修复记录保留供历史追溯。 |
 | 已落地的 Kconfig | `CONFIG_SUN50I_IOMMU=y`(P0-4)+ `CONFIG_DRM_PANEL_NEWVISION_NV3052C=m` + `CONFIG_SPI_GPIO=m` + `CONFIG_BACKLIGHT_GPIO=m` |
-| Git baseline | ✅ `linux-7.0.9` 16 commits(baseline → 11 batocera → 3 local → .gitignore)(§12) |
-| 启动 BSP? | ❌ 不启动(决策见 §9) |
-| 调试设施 | ✅ `CONFIG_DRM_DEBUG_DRIVER=y` + `CONFIG_DRM_DEBUG=y` + 9 个 `[sun4i-drv-debug]` printk(commit `12e89e8e4`) |
-| Git tag | ✅ `lcd-stage-1-lit`(首屏成功里程碑,commit `12e89e8e4`) |
-| 下一步 | 1)✅ 屏亮 + TTY 可见 — P0-3 完成 2)后续可选:PWM 背光(方案 B) 3)GPU panfrost 仍 -110(P0-4) |
+| 源码基线 | Linux 7.2.9 vanilla + 公开 BSP 设备适配补丁。 |
+| 启动 BSP? | ✅ 2026-06-30 启动原厂镜像,确认 BSP 屏幕**正常无 1px 问题** → TCON 寄存器对比完成(见 §99 #14) |
+| 调试设施 | ✅ `CONFIG_DRM_DEBUG_DRIVER=y` + `CONFIG_DRM_DEBUG=y` + 9 个 `[sun4i-drv-debug]` printk |
+| 显示寄存器验证 | 早期层参数检查没有排除共享路由错误；此次已确认 `TCON_TOP_PORT_SEL=0` 冲突，修复后开机为 `0x20`。 |
+| 左边缘 1px 偏移 | 已修复：右端白列回到右边界，左边界红列正常；修复前后的图像内存相同。 |
+| **1px 根因定位** | **TCON TOP 双 mixer 路由冲突**；同图、同时序单变量往返复现，正式修复重启后通过。旧 DCLK/HBP 推断已更正。 |
+| 下一步(显示) | LCD 边缘回绕问题已关闭，无待办修复；后续迁移 7.3 正式版时进行常规显示回归。 |
 
 ---
 
 ## 1. 三层缺失清单(根因审计,2026-05-22)
 
-issues.md 写「~40 行 SP DTS overlay」是**严重低估**([源:实测] 检查 7.0.9 源码得到的反驳证据)。实际是 driver + dtsi + 板级 DTS + defconfig **四层**都缺。
+早期将适配概括为「~40 行 SP DTS overlay」是**低估**([源:实测] 检查 7.0.9 源码得到的反驳证据)。实际是 driver + dtsi + 板级 DTS + defconfig **四层**都缺。
 
-### 1.1 驱动层(`src/linux-7.0.9/drivers/gpu/drm/sun4i/` + `panel/` + `pwm/`)
+### 1.1 驱动层(`linux/drivers/gpu/drm/sun4i/` + `panel/` + `pwm/`)
 
 [源:实测] 在本地 `linux-7.0.9` 树 grep 各 `compatible` 表得出:
 
@@ -70,7 +76,7 @@ issues.md 写「~40 行 SP DTS overlay」是**严重低估**([源:实测] 检查
 | `panel-newvision-nv3052c.c:666` | ✅ `anbernic,rg35xx-plus-panel` → `wl_355608_a8_panel_info` | ❓ `anbernic,rg35xx-sp-v2-panel` 缺(若设备是 v2) |
 | `panel-newvision-nv3052c.c:644` | `wl_355608_a8` 寄存器序列 + 显示模式 | 实测尚未对照 `fog_fj035fhd05_v1` 厂商序列 — 见 §4.1 |
 
-### 1.2 dtsi 层(`src/linux-7.0.9/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi`)
+### 1.2 dtsi 层(`linux/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi`)
 
 整个文件**没有任何显示节点**。需添加:
 - `de: display-engine`(顶层 / 节点)
@@ -109,7 +115,7 @@ issues.md 写「~40 行 SP DTS overlay」是**严重低估**([源:实测] 检查
 
 ---
 
-## 2. Batocera 可复用 patch 清单(`thirdparty/batocera-h700/board-h700/linux_patches/`)
+## 2. Batocera 可复用 patch 清单(Batocera H700 补丁集)
 
 [源:社区] 二手来源,Batocera 团队针对 6.18-context 提交,需 rebase 到我们的 7.0.9 上下文。按 LCD 路径必要性筛选。Batocera `0002-rg35xx-enable-HDMI-LCD.patch` 是一个 21 子 patch 的合并文件,我们按需抽。
 
@@ -161,7 +167,7 @@ issues.md 写「~40 行 SP DTS overlay」是**严重低估**([源:实测] 检查
 
 ### 4.1 panel 版本 / compatible — ✅ **确定 v1** [源:厂商]
 
-通过 ssh sp 拉 p4 boot 镜像反编译三个候选 dtb(`lcd_type=0/1/2`):
+通过 ssh root@DEVICE_HOST 拉 p4 boot 镜像反编译三个候选 dtb(`lcd_type=0/1/2`):
 
 | dtb | 偏移 | `lcd_driver_name` | 分辨率 | `lcd_dclk_freq` | 适用机型 |
 |---|---|---|---|---|---|
@@ -238,18 +244,20 @@ Batocera 0002 patch 08/21 引用的 `<&ccu CLK_TCON_LCD0>`、`<&ccu CLK_BUS_TCON
 
 [源:实测] `linux-7.0.9/drivers/gpu/drm/panel/panel-newvision-nv3052c.c:607-620`:
 
-| 参数 | mainline | BSP dtb([源:厂商]) | diff |
+2026-10-04 勘误：下表 BSP 列已按 `lcd_hbp/lcd_vbp` **包含同步宽度**换算成 DRM 的纯前后沿；该换算说明不代表本轮修改了运行中的模式时序。
+
+| 参数 | mainline（当时版本） | BSP dtb 换算值 | diff |
 |---|---|---|---|
 | clock (kHz) | 24000 | 24000 | ✅ |
 | hdisplay | 640 | 640 | ✅ |
-| hfp(hsync_start − hdisplay) | **64** | **24** | ❌ |
+| hfp(hsync_start − hdisplay) | **64** | **32** | ❌ |
 | hsync(hsync_end − hsync_start) | **20** | **8** | ❌ |
-| hbp(htotal − hsync_end) | **46** | **48** | 接近 |
+| hbp(htotal − hsync_end) | **46** | **40** | 接近 |
 | htotal | **770** | **720** | ❌ -50 |
 | vdisplay | 480 | 480 | ✅ |
-| vfp | **21** | **28** | ❌ |
+| vfp | **21** | **32** | ❌ |
 | vsync | 4 | 4 | ✅ |
-| vbp | **15** | **48** | ❌ |
+| vbp | **15** | **44** | ❌ |
 | vtotal | **520** | **560** | ❌ +40 |
 | 帧率 | 59.88 Hz | 59.52 Hz | 微差 |
 | HSYNC/VSYNC 极性 | both NEG ([源:实测] DRM_MODE_FLAG_NHSYNC + NVSYNC) | both 低 ([源:厂商] `lcd_hv_sync_polarity=3`) | ✅ |
@@ -268,18 +276,18 @@ Batocera 0002 patch 08/21 引用的 `<&ccu CLK_TCON_LCD0>`、`<&ccu CLK_BUS_TCON
 - 大部分 hunks 仅 offset(`succeeded at X (offset N lines)`)
 - **1 个 hunk FAILED**:`sun50i-h616.dtsi:1154` —— 这是 sub-patch 18/21 给 `tcon_lcd0_out` 加 sub-endpoint。失败原因:**sub-patch 18 假设 sub-patch 08(添加 tcon_lcd0 节点)已应用**,但 `patch -p1` 一次性扫整文件,无法处理 sub-patch 间顺序依赖
 
-[源:推断] 解决方案:**用 `git am` 把 21 个子 patch 拆成 21 个独立 commit 顺序 apply**。这正好契合用户 2026-05-22 提议的"linux-7.0.9 做 git 仓库"。Patch 已是 mailbox 格式(每子 patch 含 `From ... Subject:` 头),`git mailsplit + git am -3` 直接可用。
+[源:推断] 解决方案:**用 `git am` 把 21 个子 patch 拆成 21 个独立 commit 顺序 apply**。Patch 已是 mailbox 格式(每子 patch 含 `From ... Subject:` 头),`git mailsplit + git am -3` 直接可用。
 
 ### 4.10 Panel reset 极性 + AXP717 cldo3 实测 — ✅ [源:厂商+实测]
 
 - **Reset 极性**:[源:厂商] BSP dtb `lcd_gpio_3 = <0x08 0x0e 0x01 ... 0x01>` 末位 `data=0x01`(默认 high = deassert)→ active-low;[源:实测] mainline NV3052C `gpiod_set_value(reset, 1)` 后跟 `set_value(reset, 0)` + Batocera DTS `GPIO_ACTIVE_LOW` → 一致
-- **`reg_cldo3`(vcc-io,给 PD bank 供电)**:[源:实测] `ssh sp 'cat /sys/class/regulator/.../name,state,microvolts'` → `vcc-io enabled 3300000` ✅(P0-7 AXP DMA mask 问题不影响 cldo3 输出)
+- **`reg_cldo3`(vcc-io,给 PD bank 供电)**:[源:实测] `ssh root@DEVICE_HOST 'cat /sys/class/regulator/.../name,state,microvolts'` → `vcc-io enabled 3300000` ✅(P0-7 AXP DMA mask 问题不影响 cldo3 输出)
 
 ---
 
 ## 8. 原厂 BSP 关键数据汇总(2026-05-22 抠出)
 
-[源:厂商] 一手数据。来源:`ssh sp 'dd if=/dev/mmcblk0p4 ...'` + `dtc -I dtb -O dts`,见 §99 日志 2026-05-22 #2。
+[源:厂商] 一手数据。来源:`ssh root@DEVICE_HOST 'dd if=/dev/mmcblk0p4 ...'` + `dtc -I dtb -O dts`,见 §99 日志 2026-05-22 #2。
 
 ### 8.1 三个候选 dtb 在 p4 boot.img 的位置
 
@@ -298,18 +306,18 @@ lcd_if = 0           # RGB parallel
 lcd_hv_if = 0        # HV parallel
 lcd_x = 640
 lcd_y = 480
-lcd_width = 0x96     # 物理宽度 ~150mm
-lcd_height = 0x5e    # 物理高度 ~94mm  (→ 3.5" 4:3 IPS)
+lcd_width = 0x96     # DT 原始声明值 150，未经物理尺寸核验
+lcd_height = 0x5e    # DT 原始声明值 94，不能据此推导 3.5" 物理尺寸
 lcd_dclk_freq = 24   # MHz
-lcd_hbp = 48         # h back porch
-lcd_ht = 720         # h total = active(640) + hbp(48) + hsync(8) + hfp(24)
+lcd_hbp = 48         # 含 hsync 的后沿区间；纯后沿 40 + hsync 8
+lcd_ht = 720         # active 640 + 纯后沿 40 + hsync 8 + 前沿 32
 lcd_hspw = 8         # h sync pulse width
-lcd_vbp = 48         # v back porch
-lcd_vt = 560         # v total = active(480) + vbp(48) + vsync(4) + vfp(28)
+lcd_vbp = 48         # 含 vsync 的后沿区间；纯后沿 44 + vsync 4
+lcd_vt = 560         # active 480 + 纯后沿 44 + vsync 4 + 前沿 32
 lcd_vspw = 4         # v sync pulse width
 lcd_hv_clk_phase = 2
 lcd_hv_sync_polarity = 3   # HSYNC + VSYNC both active-low
-lcd_frm = 1                # frame buffer dithering(BSP 特性,mainline 无)
+lcd_frm = 1                # BSP FRM 配置；mainline 也有 FRM 控制，当前实测关闭
 lcd_gamma_en = 0
 lcd_bright_curve_en = 0
 
@@ -333,7 +341,7 @@ lcd_backlight = 0x32     # 默认亮度 50/255 ≈ 20%
 SMCCC SOC_ID: jep106:091e:1823 Revision 0x00000002   # H616/H700 silicon rev 2
 ```
 
-[源:实测] `dmesg | grep SMCCC` 当前 mainline 7.0.9 启动日志直接读到。
+[源:实测] `dmesg | grep SMCCC` 当时 mainline 7.0.9 启动日志直接读到。
 
 ---
 
@@ -369,7 +377,9 @@ SMCCC SOC_ID: jep106:091e:1823 Revision 0x00000002   # H616/H700 silicon rev 2
 
 [源:推断] 即使刷回 SPL + U-Boot + p2,4.9.170 kernel 启动会在 `modprobe sunxi_disp` / `sunxi_lcd` 阶段失败(模块全失踪),无法跑到 LCD 阶段。**实际启动 BSP 需要重新刷一张干净的原厂 TF 卡**(物流和折腾时间 ≥ 1-2 天,或一台备机做对比)。
 
-### 9.4 关键数据(panel SPI 命令序列)BSP 也拿不到
+### 9.4 当时对 panel SPI 命令序列可获取性的评估
+
+> 2026-10-04 更新：本节关于正常启动难以捕获历史 SPI 流量的讨论仍有适用条件；“原厂序列拿不到”不是最终结论。已结合 Image 的 RELATIVE 重定位成功反汇编恢复初始化序列，见最新记录。
 
 [源:推断] 即便能启动 BSP:
 - BSP 内核无源 → 不能加 dynamic_debug
@@ -379,7 +389,7 @@ SMCCC SOC_ID: jep106:091e:1823 Revision 0x00000002   # H616/H700 silicon rev 2
 
 ### 9.5 mainline 7.0.9 上能拿到什么(2026-05-22 实测)
 
-[源:实测] `ssh sp` 在当前运行的 mainline 7.0.9 上跑同样命令的结果:
+[源:实测] `ssh root@DEVICE_HOST` 在当时运行的 mainline 7.0.9 上跑同样命令的结果:
 
 | 数据 | mainline 7.0.9 上能否拿 | 说明 |
 |---|---|---|
@@ -412,65 +422,11 @@ SMCCC SOC_ID: jep106:091e:1823 Revision 0x00000002   # H616/H700 silicon rev 2
 
 ---
 
-## 10. 方案 A 落地清单(2026-05-22 更新,等执行)
+## 10. 当前构建入口
 
-[源:推断] 工程步骤,基于 §2 patch 清单 + §1.4 Kconfig + §4.6/4.7/4.8/4.9 预检结论。
+历史实验曾拆分并选择性移植 Batocera 补丁。公开 BSP 已维护适用于 7.2.9 的累积适配补丁，
+使用方法见[主线指南](mainline-guide.md)。无需按旧实验步骤重复叠加补丁。
 
-### 10.1 在 `linux-7.0.9` 仓库内顺序 apply Batocera 子 patch
-
-```bash
-cd src/linux-7.0.9
-mkdir /tmp/batocera-split
-cd /tmp/batocera-split
-git mailsplit -o. /path/to/0002-rg35xx-enable-HDMI-LCD.patch
-# 得 0001..0021 21 个独立 mbox 文件
-cd src/linux-7.0.9
-# 按方案 A 应用 11 个子 patch(跳过 05/06/09/10/11/12/13/14/15/20 — HDMI 或 bindings YAML)
-for n in 0001 0002 0003 0004 0007 0008 0016 0017 0018 0019 0021; do
-    git am -3 /tmp/batocera-split/$n
-done
-```
-
-### 10.2 NV3052C 驱动 fork `fog_fj035fhd05_v1_panel_info`(§4.8)
-
-新增到 `drivers/gpu/drm/panel/panel-newvision-nv3052c.c`(估 ~40 行):
-- `fog_fj035fhd05_v1_mode[]`:用 [源:厂商] §8.2 时序值(htotal 720 / vtotal 560 / hsync_start 664 等)
-- `fog_fj035fhd05_v1_panel_info`:`width_mm=70 height_mm=53`(从 BSP `lcd_width=0x96 lcd_height=0x5e` 折算 — 注意 BSP 单位是 0.1 mm),`bus_format=MEDIA_BUS_FMT_RGB888_1X24`,`panel_regs=wl_355608_a8_panel_regs`(暂复用,§4.4)
-- `nv3052c_of_match[]` 新加一条 `{ .compatible = "anbernic,rg35xx-sp-panel", .data = &fog_fj035fhd05_v1_panel_info }`
-- commit 信息标 `[本地] anbernic: add rg35xx-sp panel timing for fog_fj035fhd05_v1`
-
-板级 DTS(由 Batocera 子 patch 19/21 改 2024.dts)的 panel compatible 改为 `"anbernic,rg35xx-sp-panel"`(SP 专用,**不复用 plus-panel**)。
-
-### 10.3 `rg35xxsp.config` 追加 LCD Kconfig
-
-```
-# === Panel / LCD(P0-3)===
-CONFIG_DRM_PANEL_NEWVISION_NV3052C=m
-CONFIG_SPI_GPIO=m
-CONFIG_BACKLIGHT_GPIO=m
-```
-
-### 10.4 调整 `build_kernel.sh`(可选,等真出问题再改)
-
-当前用 `patch -p1` 吃 `patches/*.patch`。git 工作流后建议改成 `git am -3`,但当前 11 个 patch 已在 linux-7.0.9 git 里,build script 不必再次 apply。要么:
-- (a) 把 git 内 patches 用 `git format-patch` 导回 `bsp/build/c/patches/`,build script 保留 `patch -p1` 流程,但去掉 git 跟踪(失去 git 优势)
-- (b) 改 build script 跳过 patches 应用,假设 linux-7.0.9 已是含 patch 的目标状态(更纯净)
-
-[源:推断] 推荐 (b)。但**先 Task #3 跑通再决定**。
-
-### 10.5 验证(上电)
-
-```
-dmesg | grep -iE "panel|sun4i-tcon|sun8i-mixer|backlight|sun50i-iommu"
-ls /sys/class/drm/             # 期望见 card0-DPI-1 (LCD)
-ls /sys/class/backlight/       # 期望见一个 backlight 设备
-cat /sys/class/backlight/*/brightness
-# 物理:LCD 背光亮 + framebuffer console (tty1 输出)
-```
-
-若白屏 / 花屏(panel probe 但无图像)→ 见 §4.4 三级升级路径、§9.7 备用方案。
-
----
 
 ## 11. 相关引用
 
@@ -478,39 +434,502 @@ cat /sys/class/backlight/*/brightness
 - `issues.md` P0-4 — 同期 IOMMU/panfrost 修(独立问题,共享 rebuild)
 - `mainline-support.md` 第 212/263/292 行 — Panel 驱动状态、DE3.3 高级特性差距
 - `device-facts.md` §7 / §10.4 / §23 — LCD 物理事实、lcd_type 三选一
-- `thirdparty/batocera-h700/board-h700/linux_patches/0002-rg35xx-enable-HDMI-LCD.patch` — 主要参考 [源:社区]
-- `thirdparty/batocera-h700/board-h700/linux_patches/0007,0013,0099-*` — 后续升级 / panel 变体 [源:社区]
+- Batocera 的 HDMI / LCD 适配补丁 — 主要参考 [源:社区]
+- Batocera 后续适配补丁 — 后续升级 / panel 变体 [源:社区]
 
 ---
 
-## 12. Git 工作流(2026-05-22 新增)
+## 12. 补丁维护
 
-[源:推断] 工程基础设施。
+公开源码、配置与补丁见 [BSP 仓库](https://github.com/hsyysy/bsp-rg35xxsp)。
+上游版本由 submodule 固定；设备适配由独立补丁维护，7.2.9 已含的路由修复不重复回移。
 
-### 12.1 仓库
-
-- 位置:`bsp/src/linux-7.0.9/.git/`(2026-05-22 新建)
-- baseline commit:`a8b03ff baseline: Linux 7.0.9 + build/c/patches/0001-mmc-pwrseq-tolerate-ENOENT applied`
-- .gitignore:kernel-aware(忽略 `.config / *.o / *.cmd / vmlinux / Image* / *.dtb / scripts/dtc/* / include/config|generated/...`)
-- distclean 后 tree 1.8 GB,`.git` 689 MB
-
-### 12.2 后续提交策略
-
-- 每个 Batocera 子 patch → 一个 commit(`git am -3` 自动以原作者身份创建)
-- 我们的本地 patch(panel info fork、build 系统调整)→ 单独 commit,标 `[local]` 前缀
-- 标签:Task #3 完成时打 `lcd-stage-1-pre-boot`,首屏成功后打 `lcd-stage-1-lit`
-
-### 12.3 与 `build_kernel.sh` 的兼容性
-
-[源:推断] 当前 build script 用 `patch -p1` 应用 `build/c/patches/*.patch`,**和 git am 应用的 commit 序列会重复**。处理方案见 §10.4。
-
----
 
 ## 99. 进展日志(倒序,最新在上)
 
+### 2026-10-11 — 控制台与显示回归
+
+- fbcon 与前端共用 UI 主层；通过解绑 framebuffer vtconsole、将前端输出接入 journal，避免界面被文本覆盖。整机重启已复核。[源:实测]
+- 开发阶段 LCD 测试覆盖三个平面和 64 个平面 / 格式组合；143 项提交通过，六项缩放组合返回 ERANGE。自动提交检查不代替逐图案人工验收。[源:实测]
+- 测试图案及 Start 返回前端的交互已有人工交互验证；该测试程序不作为公开 BSP 构建仓库的组成部分。
+- 正常日志与启动告警清理分别见[日志配置](kernel-debug-branches.md)和[告警记录](boot-warning-cleanup.md)。
+
+<a id="deploy-7-2-9-20261010"></a>
+
+### 2026-10-10 — 7.2.9 迁移与重启验收
+
+- 基于 vanilla 7.2.9 迁移板级适配；该版本已包含 TCON TOP 路由修复，不再重复回移。[源:源码]
+- Image、DTB 与对应版本模块完成构建和部署，重启后 NV3052C、DE33、Panfrost、Cedrus 及音频驱动正常初始化，PCF8563 为 rtc0，hctosys=1。[源:实测]
+- 只读检查路由为 `0x0651001c=0x20`，没有临时修正模块。正常测试图经视觉验收，无左右边缘回绕；未重复全部外设功能测试。[源:实测]
+
+<a id="lcd-route-fix-20261003"></a>
+
+### 2026-10-03 / 04 — LCD 边缘回绕根因与持久化修复
+
+原厂 BSP 使用 `mixer0→TCON0、mixer1→TCON2`；修复前主线两个 mixer 同时选择 TCON0。
+在相同图案、时序、时钟和 framebuffer 下，只把 `TCON_TOP_PORT_SEL` 从 `0x00` 改为 `0x20`，
+回绕消失；往返切换可重复复现。这确认了路由冲突是本次问题的根因。
+HBP / DCLK 相位及面板寄存器的早期推断没有构成该问题的最终修复。[源:实测]
+
+上游修复按可用 TCON 端点分配不同路由，避免板级硬编码。
+修复先回移到 7.2.3，替换对应正式模块并通过重启、寄存器只读检查和视觉验收；
+之后升级到自带该修复的 7.2.9。[源:实测+源码]
+
+测试图边缘为最左红、最右白，内侧左绿右蓝；图像缓冲回读一致。
+后续升级需核对原生修复仍存在，并在重启后重复边缘回归，不能只检查 framebuffer 内容。
+芯片内部如何形成一像素错位仍缺少总线测量证据。[源:实测]
+
+上游依据：[补丁讨论](https://lists.openwall.net/linux-kernel/2026/08/03/1946)、
+[主线源码](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/gpu/drm/sun4i/sun8i_tcon_top.c?h=v7.3-rc1)。
+
+以下为早期实验历史，保留各日期的观察范围，不将其当作当前待办或正式驱动能力。
+
+### 2026-06-30 #14 — 原厂 BSP 寄存器对照（历史推断已更正）
+
+> **2026-10-04 勘误**：原厂无回绕的观察仍有效。下文把参数差异直接认定为根因的推断已被 2026-10-03 路由对照更正；`lcd_hbp` 包含同步宽度，且 `0xe0000000` 的 bit 28 为 0，并非 `rgb_endian=1`。不要按本节旧方案继续补偿像素。 最新结论见 [路由修复记录](#lcd-route-fix-20261003)。
+
+**目的**:启动设备原厂镜像(kernel 4.9.170),确认 BSP 屏幕是否有 1px 问题,并读取运行时 TCON 寄存器与 mainline 对比。
+
+#### 结论 [源:实测]
+
+**原厂 BSP 屏幕正常,无 1px 问题**。三重视觉确认:
+1. dmenu launcher 正常显示,左边缘无竖条(2026-06-30 dmenu.bin 画面实测)
+2. DE2 层边缘像素图案测试(simple 程序,左红 / 中黑 / 右白 + 绿蓝边界线):左右边缘均正确,无回绕(2026-07-01 实测)
+3. DE2 层边缘像素图案测试(edge_v2 程序,多色边界标记):左右边缘均正确,无回绕(2026-07-01 实测)
+
+**根因锁定**:BSP vs mainline 存在 **3 项关键差异**:
+
+| 差异项 | BSP (4.9.170) | Mainline 7.0.9 (#11) | 差异性质 |
+|--------|---------------|----------------------|----------|
+| **TCON0_IO_POL** | `0x07000000` | `0x00000000` | **关键** |
+| `clk_inv` (bit 26) | **1** | 0 | DCLK 驱动沿反转 |
+| `sync_inv` (bits 25:24) | 3 (HSYNC_NEG\|VSYNC_NEG) | 3 | 相同 |
+| `dclk_sel` (bits 30:28) | 0 | 0 | 相同 |
+| **TCON0_BASIC1 hbp** | **48** | 56 | 少 8 像素 |
+| **TCON0_IO_TRI rgb_endian** (bit 28) | **1** (big-endian) | 0 (little-endian) | 字节序反转 |
+| TCON0_BASIC2 vbp | 48 | 52 | 少 4 像素 |
+| TCON0_CTL start_delay | **31** (max) | 30 | 微差 |
+| TCON0_DCLK div | **12** | — | BSP 用分频 12 |
+
+#### BSP IO_POL 分解 [源:实测]
+
+- BSP `IO_POL = 0x07000000`:
+  - `data_inv = 0x000000`(24bit 数据极性,全正常)
+  - `sync_inv = 3`(HSYNC 反相 + VSYNC 反相 → 两个都 active-low)
+  - `clk_inv = 1`(DCLK 下降沿驱动)
+  - `de_inv = 0`(DE 高有效)
+  - `dclk_sel = 0`(3 位 DCLK 相位选择)
+  - `io_output_sel = 0`
+
+- 根据 BSP 源码 `de_lcd.c:921-946`,`clk_inv=1, dclk_sel=0` → `lcd_hv_clk_phase = 2`。与 BSP dtb `lcd_hv_clk_phase = 2` **一致**。
+
+#### 与 #13 测试结果的再分析 [源:实测+推断]
+
+#13 测了 4 种 IO_POL 组合:
+- Phase 0 (`0x00000000`, clk_inv=0, dclk_sel=0): 回绕
+- Phase 1 (`0x20000000`, clk_inv=0, dclk_sel=2): 回绕消失但右移 1px
+- Phase 2 (`0x04000000`, clk_inv=1, dclk_sel=0): 回绕(同 Phase 0)
+- Phase 3 (`0x24000000`, clk_inv=1, dclk_sel=2): 不稳定
+
+**BSP 跑的是 Phase 2**（`clk_inv=1, dclk_sel=0 → IO_POL=0x04000000`,加上 sync_inv 后 = `0x07000000`)。
+
+但 #13 测 Phase 2 (`0x04000000`) 时屏幕上**仍有回绕**——而 BSP 无回绕。这说明 **BSP 还有额外的补偿机制**,不仅仅是 IO_POL。
+
+#### 差异分析:为什么 BSP Phase 2 无回绕而我们 Phase 2 有? [源:推断]
+
+BSP 相较于 mainline 多了 3 个差异:
+
+1. **`clk_inv=1`** (DCLK 下降沿采样):与我们 #13 Phase 2 测试相同 → 单独不足以消除回绕
+
+2. **`rgb_endian=1`** (`IO_TRI bit 28`):**改变 RGB 数据线上 R/G/B 通道的字节序**。在 BSP 寄存器布局中,`tcon0_io_tri_reg_t.bits.rgb_endian` 控制输出数据的端序。**这可能是关键旋钮**:改变字节序意味着 DE 在数据线上的锁存时刻对应的像素位置发生微妙偏移,可能恰好补偿了 1 DCLK 的时序偏差
+
+3. **HBP 不同**:BSP HBP=48,mainline HBP=56(BSP dtb 原始值 HBP=48)。**HBP 差 8 像素可能意味着 DE 信号的起始时间不同**,影响 panel 内部对"第一个有效像素"的判读
+
+#### 修正方案 [源:实测+推断]
+
+~~放弃 #13 的 dclk_sel=2 + 补偿路线~~,直接用 BSP 的方案:
+
+2026-07-01 实测验证:在 mainline 上通过 `/dev/mem` 写入 BSP 的 IO_POL=0x07000000 + IO_TRI=0xe0000000 后,**1px 回绕问题仍在**(左边缘仍为白色)。BASIC1 寄存器 bus error 无法实时写入。
+
+**关键发现**:mainline `sun4i_tcon0_mode_set_rgb()` 计算 `bp = htotal - hsync_start = 720-664 = 56`(含 hsync),写入 BASIC1 的 hbp_reg=55;**BSP 写的是真实后沿 `hbp_reg = 47`(即 hbp=48,不含 hsync)**。差异 = 8px = hsync 宽度。
+
+**两处修改点**:
+
+1. **`sun4i_tcon0_mode_set_rgb()`(`sun4i_tcon.c:539`)**:
+   `bp = mode->crtc_htotal - mode->crtc_hsync_start`(当前:56)
+   改为 `bp = mode->crtc_htotal - mode->crtc_hsync_end`(BSP:48)
+   **但这会影响所有使用该函数的 LCD** — 需加 quirks 判断仅对 H616/R40 生效
+
+2. **或改 panel 时序**(`panel-newvision-nv3052c.c:648-650`):
+   把 `hsync_start/hsync_end` 各减 8,让 hbp=48 正确传出。但这违反 DRM 规范(htotal=hsync_end+hbp)。
+
+**推荐方案**:修改 panel 侧 `fog_fj035fhd05_v1_mode`:
+```c
+.hsync_start = 640 + 16,   /* hfp = 16 (曾为 24) */
+.hsync_end   = 640 + 16 + 8, /* hsync = 8 */
+.htotal      = 640 + 16 + 8 + 56,  /* 720, bp自然成为56 */
+```
+或通过 bus_flags 引入新标志让驱动使用正确的 HBP 计算。
+
+**下一步**:直接修改 panel 模式时序或 sun4i_tcon.c 的 H616 quirks,rebuild 内核测试。
+
+更新章节:§0(状态)、§99(本条)、§99 #15
+
+### 2026-07-01 #16 — 纯色画面与归档状态（历史记录）
+
+> **2026-10-04 勘误**：本节固定阴影是另一个历史观察，不能用来解释此次已修复的边缘回绕；其硬件成因未由本轮实验核验。后文 master/产物/HBP 状态均属于当时版本，当前以本页顶部及最新记录为准。 最新结论见 [路由修复记录](#lcd-route-fix-20261003)。
+
+**目的**:区分剩余的边缘彩线问题与用户观察到的“中间灰、四周黑”拖影/阴影。
+
+#### 结果 [源:实测]
+
+- 在纯色灰色 framebuffer 下，阴影仍出现在与测试图案相同的物理位置。
+- 更换边缘彩色图案、光标/TTY 内容后，阴影的环形轮廓和中心位置不随图案移动。
+- 边缘彩线（左侧白/绿、右侧红）与该环形阴影可以同时出现，二者是可分离现象。
+- 逐步改变 TCON `IO_POL`/`IO_TRI` 会改变边缘采样颜色或造成渐暗，但不能稳定消除环形阴影；正式 modeset 后彩色标记可消失而阴影仍在。
+
+#### 结论 [源:实测+推断]
+
+环形“中心较亮/较灰、四周较暗/黑”的固定纹理不是 framebuffer 内容、DE33 缩放/CSC、NV3052C 地址窗口或 TCON 水平时序造成的图案残留。它更符合 LCD 模组的光学/机械不均匀（导光板、扩散片、面板受压或 mura）。继续修改内核显示时序预计不能消除该现象；后续应转向拆机检查、均匀背光/面板压力和模组替换对照。
+
+#### Git 归档
+
+- `master` (`ad6c36d74`): 仅保留已验证的 H616 LCD 实时后沿（HBP=48）修复。
+- `lcd-experiments` (`ddfb22b5c`): 保留 NV3052C 地址窗口、DE33 scaler/CSC、寄存器转储等实验提交，作为可复现实验依据，不作为默认修复。
+
+### 2026-09-04 #17 — Git 整理与最终证据分级
+
+本轮实验后的归档规则如下：
+
+| 内容 | 结论 | 归档位置 |
+|---|---|---|
+| H616/R40 LCD 后沿计算使用真实 HBP（排除 HSYNC） | 已通过设备 dmesg 与画面验证，稳定有效 | `master`，`ad6c36d74` |
+| NV3052C CASET/RASET 显式窗口 | 现场验证无效 | `lcd-experiments`，`ab010f14d` |
+| DE33 scaler/CSC、alpha、格式等尝试 | 未证明与竖线成因相关 | `lcd-experiments`，`78fda029c` |
+| H616 TCON/DE 寄存器转储工具 | 仅调试用途 | `lcd-experiments`，`ddfb22b5c` |
+| `IO_POL`/`IO_TRI` 热写组合 | 会改变颜色/采样或造成渐暗，但没有稳定零偏修复 | 仅保留实验记录，不进主线 |
+| DCLK `dclk_sel=2` | 可消除回绕但整体右移 1px；未形成完整修复 | 仅保留实验记录，不进主线 |
+| 纯色画面固定环形阴影 | 与图案无关，判定为 LCD 模组光学/机械不均匀 | 硬件问题，非内核修复项 |
+
+因此，默认构建应使用 `master`；需要复现实验或继续采集寄存器时再切换到 `lcd-experiments`。工作区仅剩构建生成的 VDSO 二进制改动，未纳入任何提交。
+
+### 2026-06-27 #13 — DCLK 相位组合实验（历史观察，非最终根因）
+
+> **2026-10-04 勘误**：改变相位曾改变可见现象，但未获得边缘像素完整的修复。“真正旋钮”和“已找到一半根因”的推断不再作为结论；此次正式修复只分离 mixer 路由，没有做 DCLK 相位或像素补偿。 最新结论见 [路由修复记录](#lcd-route-fix-20261003)。
+
+**目的**:#12 结论称「DCLK_PHASE=1 无效 / =2 黑屏」,但该测试基于 mainline `SUN4I_TCON0_IO_POL_DCLK_PHASE(phase) = (phase & 3) << 28` 宏(仅 2 位 bits 29:28)。本次重新审视 BSP `tcon0_io_pol` 位定义,发现 **BSP `dclk_sel` 是 3 位(bits 30:28),与 mainline 2 位定义不同**,且 BSP 用 `clk_inv`(bit 26)+ `dclk_sel`(bits 30:28)双字段组合表达 4 个相位。重测全部 4 组合。
+
+#### §1 BSP vs mainline 位定义差异 [源:实测+厂商]
+
+**BSP** `tcon0_io_pol_reg_t`(`linux-allwinner-4.9/.../de_lcd_type.h:222-232`):
+
+| bit | 字段 | 宽度 |
+|---|---|---|
+| 26 | `clk_inv` | 1 |
+| 27 | `de_inv` | 1 |
+| 28-30 | `dclk_sel` | **3** |
+| 31 | `io_output_sel` | 1 |
+
+**Mainline** `SUN4I_TCON0_IO_POL_*`(`linux-7.0.9/.../sun4i_tcon.h:115-117`):
+
+| bit | 字段 | 宽度 |
+|---|---|---|
+| 26 | `DCLK_DRIVE_NEGEDGE`(≡ BSP `clk_inv`) | 1 |
+| 27 | `DE_NEGATIVE`(≡ BSP `de_inv`) | 1 |
+| 28-29 | `DCLK_PHASE` | **2**(丢弃 bit 30) |
+
+**关键差异**:BSP `dclk_sel` 占 3 位,mainline `DCLK_PHASE` 只占 2 位。BSP phase 1/3 的 `dclk_sel=2`(`010`)写入 bits 29:28 = `10`,正好落在 mainline 2 位范围内;但语义上 BSP 是「3 位选择器」,mainline 是「2 位相位」。
+
+BSP `lcd_hv_clk_phase` → 寄存器映射(`de_lcd.c:489-509`)[源:厂商]:
+
+| `lcd_hv_clk_phase` | `clk_inv` | `dclk_sel` | IO_POL 值 |
+|---|---|---|---|
+| 0 | 0 | 0 | 0x00000000 |
+| 1 | 0 | 2 | 0x20000000 |
+| 2 | 1 | 0 | 0x04000000 |
+| 3 | 1 | 2 | 0x24000000 |
+
+#### §2 测试方法 [源:实测]
+
+1. 设备:`ssh root@sp`,内核 7.0.9
+2. 测试图案(写 `/dev/fb0`,640×480 XRGB8888):x=0 红、x=1 绿、x=638 蓝、x=639 白,中间 x=320 红竖线 + y=240 绿横线
+3. 逐个写 `TCON0_IO_POL`(0x06511088)为 4 个相位值,每个停留观察左/右边缘颜色
+4. 判据:左边缘应为红(正常)/ 白(x=639 回绕)/ 绿(x=0 丢失,右移);右边缘应为白(正常)/ 蓝(x=638 回绕后露)/ 黑(x=639 丢失)
+
+#### §3 测试结果 [源:实测]
+
+| Phase | clk_inv | dclk_sel | IO_POL | 屏幕状态 | 左边缘 | 右边缘 | 现象解读 |
+|---|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 0x00000000 | 亮 | 白 | 蓝 | 回绕(x=639→x=0, x=638→x=639) |
+| 1 | 0 | 2 | 0x20000000 | 亮 | 绿 | 黑 | **回绕消失**,但整体右移1px(x=0红丢失→看到x=1绿, x=639白丢失→右边黑) |
+| 2 | 1 | 0 | 0x04000000 | 亮 | 白 | 蓝 | 回绕(同 phase 0,clk_inv 无影响) |
+| 3 | 1 | 2 | 0x24000000 | **不稳定** | 紫(渐暗) | 黑 | 红+蓝混色,亮度逐渐下降,不可用 |
+
+#### §4 关键结论 [源:实测+推断]
+
+1. **`dclk_sel`(bits 30:28)才是 1px 回绕的真正旋钮,`clk_inv`(bit 26)无效**:
+   - `dclk_sel=0`(phase 0/2):回绕存在
+   - `dclk_sel=2`(phase 1/3):回绕消失
+   - `clk_inv` 翻转(phase 0→2, 1→3)对回绕无影响,仅 phase 3 出现不稳定(可能是 `clk_inv=1`+`dclk_sel=2` 组合的硬件边界)
+
+2. **#12 「DCLK_PHASE=2 黑屏」系误判**:#12 用 mainline `DCLK_PHASE(2) = (2&3)<<28 = 0x20000000` 测试,记录为「黑屏」。本次实测 `0x20000000` 是**亮屏且回绕消失**(phase 1)。推测 #12 当时可能误写为 `0x24000000`(phase 3,本次实测不稳定/渐暗)或漏写 `clk_inv` 位。**#12 该条结论作废,以本条为准**。
+
+3. **Phase 1(0x20000000)是可行解的一半**:消除回绕,但引入 1px 右移(x=0 内容丢失,右边露出 1px 黑)。这与 #12 「水平定位由 DE/DCLK 相位决定」的判断一致——`dclk_sel=2` 让 DCLK 延迟半个周期,数据采样点右移 1 像素,回绕消失但整体右移。
+
+4. **根因机制(推断)**:`dclk_sel=0` 时 DCLK 上升沿采样数据,但 DE/DATA 建立时间不足,第 1 个像素被采样到上一行的末尾(回绕);`dclk_sel=2` 延迟采样,建立时间足够,但延迟过量导致丢失 1px。理想情况应是 `dclk_sel=1`(延迟 1 个 DCLK),但 BSP `lcd_hv_clk_phase` 只定义了 0 和 2 两档,未定义 1 [源:厂商+推断]。
+
+#### §5 下一步 [源:推断]
+
+Phase 1 消除回绕但右移 1px,需补偿这 1px:
+1. **DE33 LAYER_COORD x=-1**:layer 输出左移 1px,抵消 DCLK 右移。风险:负坐标可能不被硬件支持
+2. **TCON0 BASIC1 HBP+1**:增加后沿 1px,DE 窗口左移 1px。风险:可能重新引入回绕
+3. **BSP 对比**:查 BSP 实际 `lcd_hv_clk_phase` 值,确认 vendor 是否用 phase 1 + 某种补偿
+
+**优先级**:先查 BSP `lcd_hv_clk_phase` 实际值(若 vendor 也用 phase 1,必有配套补偿),再决定补偿方向。
+
+### 2026-06-24 #12 — NV3052C V0.2 数据手册分析（历史推断已更正）
+
+> **2026-10-04 勘误**：此处曾将偏重 MIPI 的 V0.2 手册推论外推到 RGB 模式，“没有任何寄存器”“唯一修复方向”等绝对断言缺乏充分证据。后续 NV3052CGRB 手册与正确 9-bit SPI 测试见最新记录；本次已证实根因为 TCON TOP 路由，不采用下面的软件移位 workaround。 最新结论见 [路由修复记录](#lcd-route-fix-20261003)。
+
+**目的**:#11 收尾时三个「下一步」之一是「获取 NV3052C datasheet,查找源输出时序相关的未文档化寄存器」。本条通读 `doc/NV3052C-Datasheet-V0.2.pdf`(214 页,原厂 2018-10 文档)回答这个问题。
+
+**核心结论:NV3052C 没有任何「水平方向(像素/PCLK 单位)」的位置寄存器。1px 水平左移回绕在芯片侧无寄存器可调** [源:厂商]。
+
+证据(逐条对照 datasheet):
+
+| datasheet 事实 | 页/行 | 对 1px 问题的含义 |
+|---|---|---|
+| 所有 GIP shift 寄存器(`gip_vst*_shift`、`gip_vend*_shift`、`gip_clka/b/c*_shift`)单位**全是 `line`(行 / 垂直)** | §5.3.15-5.3.20(00H-71H) | 这些只能在**垂直**方向移信号,改不了水平。#11 试的 Page3[0x00]=`gip_vst` 类寄存器属此类 → 注定对水平无效 |
+| `SS` bit(MADCTL 36H / page 0xE0 区)只做 source **整屏左右翻转**(`SS=0` 左→右,`SS=1` 右→左) | line 1469-1470 / 2143-2146 | 只能整屏镜像,不能平移 1px |
+| 640RGB 分辨率下 source 映射**固定**为 `S[2400:1441], S[960:1]`,由分辨率档位决定,无逐像素起点寄存器 | line 516 | 活动区在 source driver 上的落点写死,软件不可微调 |
+| RGB/HV 并口模式下,芯片**「单行数据累计满后整行 latch」**,数据水平落点完全由输入流(DE / HSYNC + HBP)决定,芯片不自带水平相位寄存器 | line 341-342, §3.1.6 | **水平定位的「方向盘」在 TCON 侧,不在 panel 侧** |
+| datasheet 中唯一的 HBP/HFP/HSYNC 数字(HBP typ 42 / HFP typ 44 / htotal 778-808 @720×1280)只出现在 **MIPI video 模式时序参考表**,不是可写寄存器 | line 6680-6727 | 这些是「输入应满足的时序范围」,不是 panel 内部可调寄存器 |
+
+**这解释了 #11 为什么 11 种 NV3052C 寄存器改动全部无效**:Page1/Page2/Page3 改的要么是 GIP 垂直时序、要么是 gamma/source 幅度,**没有一个能影响活动区的水平像素位置**——因为这种寄存器在 NV3052C 上根本不存在。继续在 panel SPI 寄存器里找水平修正寄存器是死路 [源:厂商+推断]。
+
+**问题真正的归属**(重定位):水平 1px 落点由 **RGB 输入流的 DE/DCLK/HBP 相位**决定,即 **TCON 侧 + DE 对齐**,不是 panel 内部 [源:厂商+推断]。佐证:#11 实测 TCON 改 HBP 无效 → 说明 panel 工作在 **DE 跟随模式**(活动区锁 DE,不按 HSYNC 数 HBP),所以 HBP 改了没反应是自洽的;此时水平位置由「DE 边沿 vs 数据」的相对相位决定,而 DCLK 相位是唯一沾边的旋钮。
+
+> **[勘误 2026-06-27 #13]**:本条原称「#11 试 DCLK_PHASE=1 无效 / =2 黑屏」,经 #13 重新实测 4 组合后**作废**:`0x20000000`(mainline `DCLK_PHASE(2)`,即 BSP phase 1)实际是**亮屏且回绕消失**,仅引入 1px 右移。原「黑屏」判断系位域混淆误判。详见 §99 #13。DCLK 相位确为旋钮,且 `dclk_sel=2` 是可行解的一半(需补 1px 右移)。
+
+**对「反汇编 vendor BSP 抠 SPI 序列」这条路的影响**:**降级,基本可放弃** [源:推断]。datasheet 已证明 vendor 也无法用 SPI 寄存器做水平 1px 修正——vendor 若画面正确,差异只会在 **TCON 时序 / DE 生成 / DCLK 边沿** 上,不会在 SPI init 序列里。所以即便抠出 vendor SPI 序列,对这个 1px 问题也大概率无帮助(对其它问题如花屏/色差仍有价值,但本问题无关)。
+
+**剩余可行路径**(按性价比):
+1. **软件 workaround(推荐,立即可做)**:framebuffer 输出整体右移 1px 补偿。datasheet 已证根因在芯片侧无解、TCON 侧也只剩 DCLK 边沿一个旋钮且已试过,此 workaround **不是「掩盖可修的 bug」,而是补偿一个芯片本身没有调节能力的固有相位** → 工程上正当。代价:右边缘丢 1px 或显示 1px 黑边。
+
+   > **[勘误 2026-06-27 #13]**:本路径的前提「DCLK 边沿旋钮已试过」当时基于 #11 的误判(见上勘误)。#13 实测 `dclk_sel=2` 可消除回绕但引入 1px 右移,因此**根因修复已找到一半**,软件 workaround 可降级为备选——优先走 #13 §5 的「Phase 1 + 1px 补偿」方向。
+
+2. **TCON DE/DCLK 相位深挖**:确认 panel 实际是 DE 模式还是 HV sync 模式(datasheet line 479-489 RGB 接口引脚:HSYNC/VSYNC/DCLK/DE 都在;BSP `lcd_hv_if=0` = HV sync,但 mainline sun4i TCON 默认同时输出 DE)。若能让 panel 走纯 HV sync 模式并精确给 HBP,或反过来调 DE 与数据的 setup,可能根治。这是唯一的「根因修复」方向。
+
+   > **[更新 2026-06-27 #13]**:此路径已部分兑现——#13 实测确认 `dclk_sel`(bits 30:28)是有效旋钮,`dclk_sel=2` 消除回绕。剩余问题转为「如何补偿 Phase 1 引入的 1px 右移」,见 §99 #13 §5。
+
+3. **逻辑分析仪对比 vendor**:抓 vendor 的 **DE/DCLK/HSYNC vs RGB data 相位关系**(不是 SPI!),与 mainline 对比 1 个 DCLK 的差异。比抠 SPI 序列更对症。
+
+   > **[更新 2026-06-27 #13]**:此路径仍有效——#13 推断 `dclk_sel=1`(延迟 1 个 DCLK)可能是理想值,但 BSP `lcd_hv_clk_phase` 未定义该档。逻辑分析仪可验证 vendor 实际相位,或直接试写 `dclk_sel=1`(0x10000000)观察。
+
+**结论**:#11 标「⚠️ 未做 / 需 datasheet」的项可结案——datasheet 看过了,答案是**「此问题芯片侧无寄存器,不要再在 NV3052C SPI 上花时间」**。建议优先上软件 workaround(路径 1),根因修复留给 TCON DE/DCLK 相位(路径 2)。
+
+> **[勘误 2026-06-27 #13]**:本结论中「根因修复留给路径 2」的判断正确,但当时误以为 DCLK 相位已试完。#13 实测证明 DCLK 相位(`dclk_sel`)是有效旋钮,根因修复已有具体方向(Phase 1 + 1px 补偿)。建议优先走 #13 §5,软件 workaround 降级为备选。
+
+更新章节:§0(下一步)、§99(本条)
+
+### 2026-06-23 #11 — 帧缓冲读写一致性验证 + 左边缘竖条排查
+
+> **2026-10-04 勘误**：内存读写一致与层参数正确不能证明整个显示通路正确；当时遗漏了 TCON TOP 的共享路由冲突。面板内部根因和“全链路验证通过”属于已更正推断；仅凭几条边线不应断言全行左移。旧 panel_reg/panel_fix 工具缺少 9-bit D/C 帧，旧 SPI 阴性结果不能排除对应寄存器的作用。 最新结论见 [路由修复记录](#lcd-route-fix-20261003)。
+
+**目的**:验证 framebuffer 内存读写是否一致;排查屏幕左边缘竖条(右侧像素复制到左侧)的根因。
+
+#### 1. 帧缓冲色彩一致性测试(帧缓冲读写测试)
+
+**工具**:新建 帧缓冲读写测试工具 — 本地生成 18 种测试图案(纯色/棋盘/渐变/十字/像素标记)为 raw XRGB8888,通过 DRM ioctl(GETFB + MAP_DUMB) + mmap 写入设备 framebuffer,读回后本地 numpy 逐像素对比。
+
+**结果**([源:实测] `ssh root@DEVICE_HOST` + numpy 分析):
+
+| 测试项 | fb[52] (menu.bin) | fb[50] ([fbcon]) |
+|---|---|---|
+| 18 种图案 × 2 层 = 36 测试 | 18/18 PASS,差异像素=0 | 18/18 PASS,差异像素=0 |
+
+- 首次运行 fb[50] 的 blue 图案有 128 像素差异(y=96-97,被清零) — **根因:fbcon 光标闪烁**([源:推断] 内核 fbcon 驱动在 console 层上绘制/擦除光标)
+- **修复**:测试前写 `0 > /sys/class/graphics/fbcon/cursor_blink` 抑制光标,测试后恢复。修复后 36/36 全部 PASS
+- **结论**:**framebuffer 内存读写完全一致**,写入的数据和读回的数据逐字节相同。内存层面无问题。
+
+#### 2. 设备运行内核 vs 本地构建内核对比
+
+**目的**:确认设备实际运行的内核是否包含 git diff 中的未提交修复(DE33 CSC / scaler_mask / alpha 等)。
+
+**结果**([源:实测] `strings` + 文件大小对比):
+
+| 位置 | 文件大小 | 日期 | 含 DE33 修复? |
+|---|---|---|---|
+| 设备 `/lib/modules/7.0.9/kernel/drivers/gpu/drm/sun4i/sun8i-mixer.ko` | 277,824 B | 2026-06-07 08:45 | ✅ 含(`sun8i_de33_ccsc_setup` / `yuv2rgb_de33` / `scaler_mask` 等字符串) |
+| 构建端 sun8i-mixer.ko | 58,592 B | 2026-06-06 15:29 | ❌ 不含 |
+
+- **结论**:设备跑的**已经是修复后的版本**。git diff 中的 5 个文件(sun50i_planes / sun8i_csc / sun8i_mixer / sun8i_ui_layer / sun8i_vi_layer)的改动已编译部署到设备。
+
+#### 3. TCON 寄存器实读
+
+**目的**:验证 TCON 时序寄存器是否与 dmesg / 驱动代码一致。
+
+**方式**:通过 `/dev/mem` mmap 直读 `0x06511000`(tcon_lcd0 物理基址),python3 解析([源:实测])。
+
+**结果**([源:实测] `devmem2` + python mmap):
+
+| 寄存器 | 偏移 | 实读值 | 解码 | 与 dmesg 一致? |
+|---|---|---|---|---|
+| TCON0_CTL | 0x40 | `0x800001e0` | TCON_EN=1, CLK_DELAY=30 | ✅ dmesg: "TCON 0 clock delay 30" |
+| TCON0_BASIC0 | 0x48 | `0x027f01df` | hdisplay=640, vdisplay=480 | ✅ |
+| TCON0_BASIC1 | 0x4c | `0x02cf0037` | htotal=720, hbp+hsync=56(HBP=48, HFP=24) | ✅ dmesg: "htotal 720, backporch 56" |
+| TCON0_BASIC2 | 0x50 | `0x04600033` | vtotal=1120(÷2=560), vbp+vsync=52(VBP=48) | ✅ dmesg: "vtotal 560, backporch 52" |
+| TCON0_BASIC3 | 0x54 | `0x00070003` | hsync=8, vsync=4 | ✅ dmesg: "HSYNC 8, VSYNC 4" |
+| TCON0_IO_POL | **0x88**（原记录误写 0x58） | 旧值 `0x00000000` 需按正确地址重新核对 | 不能从错误地址验证极性 | 2026-10-03 正确地址实测 `0x04000000` |
+
+- **时序完全匹配** `fog_fj035fhd05_v1_mode` 定义([源:实测] 驱动源码 `panel-newvision-nv3052c.c:630-642`)和 BSP dtb 数据([源:厂商] display-worklog §8.2)
+- **CLK_DELAY=30** = min(vtotal-vdisplay, 30) = min(80, 30) = 30([源:实测] `sun4i_tcon.c:276-292`)
+
+#### 4. DE33 层寄存器 dump(drm_regdump.ko)
+
+**目的**:dump DE33 显示引擎层寄存器,确认 framebuffer 配置是否正确写入硬件。
+
+**工具**:新建 寄存器转储测试模块 — 内核模块,创建 `/proc/display-regdump`,dump TCON0 + planes 区域寄存器。
+
+**关键发现 1:层寄存器在 planes 区域,不在 mixer**([源:实测]):
+
+首次尝试读 mixer 区域(0x01280000)的层寄存器,**全部为零**。通过扫描发现 framebuffer DMA 地址(0x7bf00000)和 pitch(2560)实际位于 **planes 区域**(0x01100000)偏移 0xc100c-0xc1010。
+
+- **根因**([源:实测] 驱动源码 `sun50i_planes.c:65-69`):DE33 的层初始化传入的是 `planes->regs`(来自 DTS `planes@100000` 节点,物理地址 0x01100000),不是 `mixer->engine.regs`(来自 `mixer@280000`,物理地址 0x01280000)
+- **验证**([源:实测] `python3` + `/dev/mem` mmap 扫描):在 planes 区域 0x01100000 偏移 0xc100c 找到 pitch=2560,0xc1010 找到 DMA addr=0x7bf00000
+
+**关键发现 2:DE33 planes channel 偏移**([源:实测]):
+
+| Channel | Planes 区域偏移 | 物理地址 | 用途 |
+|---|---|---|---|
+| ch0 | 0x40000 | 0x01140000 | VI layer (plane-0, inactive) |
+| ch1 | 0xc1000 | 0x011c1000 | UI layer (plane-1, active, menu.bin) |
+
+- 注意:ch1 偏移 0xc1000 ≠ `DE33_CH_BASE(0x1000) + ch * DE33_CH_SIZE(0x20000)` = 0x21000。实际 planes 区域的 channel 布局与 mixer 区域不同([源:实测] 扫描确认)
+- DTS 定义([源:实测] `sun50i-h616.dtsi`):`planes@100000 { reg = <0x100000 0x180000>; }` — 1.5MB 区域
+
+**关键发现 3:Channel 1 层寄存器完整 dump**([源:实测] `drm_regdump.ko` + `/proc/display-regdump`):
+
+| 寄存器 | 偏移 | 实读值 | 解码 | 与 DRM state 一致? |
+|---|---|---|---|---|
+| LAYER_ATTR | +0x00 | `0x00000401` | EN=1, FBFMT=4(XRGB8888), ALPHA=0x00 | ✅ |
+| LAYER_SIZE | +0x04 | `0x01df027f` | h=480, w=640 | ✅ |
+| LAYER_COORD | +0x08 | `0x00000000` | x=0, y=0 | ✅ |
+| LAYER_PITCH | +0x0c | `0x00000a00` | 2560 bytes/line | ✅ |
+| LAYER_TOP_LADDR | +0x10 | `0x7bf00000` | DMA addr (menu.bin fb52) | ✅ |
+| OVL_SIZE | +0x88 | `0x01df027f` | h=480, w=640 | ✅ |
+
+- **结论**:**层寄存器配置完全正确**,与 DRM debugfs state 一致。framebuffer 地址、分辨率、像素格式、pitch 全部正确写入硬件。
+
+**Mixer 区域(0x01280000)层寄存器**([源:实测]):
+
+Mixer 区域的层寄存器(0x1000-0x1c00 范围)有非零值,但**不含 framebuffer 参数**(无 DMA addr、无 pitch)。这些是 mixer 内部的路由/混合配置,不是层数据配置。
+
+- 非零模式:每 0x400 一组重复(4 个 channel),每组结构相同 → mixer 的内部 pipeline 配置,非层数据
+
+#### 5. 左边缘 1px 水平偏移问题
+
+**现象**:屏幕左边缘有 1 像素宽的异常竖条。棋盘格图案时肉眼可见。
+
+**关键判断**:当前 `帧缓冲读写测试` **无法抓取此问题**。原因:
+
+```
+Framebuffer 内存 → Plane → DE33 Mixer → TCON → Panel
+  (§1 验证了这里)  (§4 验证了这里)  (§3 验证)  (问题在这里)
+```
+
+**精确现象描述**([源:实测] 2026-06-23):
+
+**不是"复制",是"左移回绕"**:x=639 的像素移动到 x=0 位置,所有其他像素整体左移 1 像素。
+
+验证方法:
+1. 写入测试图案:每行 x=0=红(255,0,0),x=639=绿(0,255,0),其余黑色
+2. 截图确认 framebuffer 内容正确([源:实测] 截图工具 + numpy 分析)
+3. 拍屏结果:**x=0 显示黄色(红+绿叠加),x=639 显示黑色**
+4. 垂直方向测试(上红下绿):**上下边缘完全正确,无偏移**
+
+结论:问题仅影响水平方向,是源输出时序导致的 **1px 左移 + 回绕**。
+
+**已排除的修复尝试**([源:实测] 2026-06-23):
+
+| 尝试 | 方法 | 结果 |
+|---|---|---|
+| DCLK 相位 | TCON0_IO_POL DCLK_PHASE 设为 2 | ❌ 屏幕全黑(面板不支持) |
+| CASET/RASET | 面板 enable 函数加显式列/行地址设置 | ❌ 无效果 |
+| TCON HBP | BASIC1 寄存器 HBP 从 55 改为 47(BSP 值) | ❌ 无效果 |
+| Page2[0x01] | NV3052C 源输出时序寄存器 0x01→0x00 | ❌ 无效果 |
+| Page1[0x03] | NV3052C 寄存器 0x03→0x41/0x3f | ❌ 无效果 |
+
+> **[勘误 2026-06-27 #13]**:上表「DCLK 相位 设为 2 → 黑屏」一条**作废**。#13 重新实测 4 组合发现 `0x20000000`(即 mainline `DCLK_PHASE(2)`,BSP phase 1)实际**亮屏且回绕消失**,仅引入 1px 右移。原「黑屏」判断系位域混淆误判(可能误写为 `0x24000000` phase 3,该值本次实测不稳定/渐暗)。详见 §99 #13。**DCLK 相位非但不是「面板不支持」,反而是 1px 回绕的真正旋钮**。
+
+| Page3[0x00] | GIP 垂直起始寄存器 0x2a→0x2b | ❌ 无效果 |
+
+**排查状态**:
+
+| 排查项 | 状态 | 结论 | 来源 |
+|---|---|---|---|
+| 内存读写一致性 | ✅ 已验证 | 36/36 PASS | [源:实测] §1 |
+| 驱动修复部署 | ✅ 已验证 | DE33 修复已在设备运行 | [源:实测] §2 |
+| TCON 时序寄存器 | ✅ 已验证 | 全部正确,与 BSP 一致(含 DCLK_NEG=1) | [源:实测] §3 |
+| DE33 层寄存器 | ✅ 已验证 | 配置完全正确(ADDR/PITCH/FORMAT/SIZE) | [源:实测] §4 |
+| **水平 1px 左移回绕** | **✅ 已确认** | **仅水平方向,x=639 移到 x=0,垂直无问题** | **[源:实测] 拍屏验证** |
+| TCON HBP 调整 | ❌ 无效 | HBP 55→47 无变化 | [源:实测] |
+| DCLK 相位调整 | ❌ 无效/黑屏 | DCLK_PHASE=2 导致黑屏 | [源:实测] |
+| NV3052C CASET/RASET | ❌ 无效 | 显式设置列地址无效果 | [源:实测] |
+| NV3052C 源输出时序 | ❌ 无效 | Page1/Page2 多个寄存器调整无效果 | [源:实测] |
+| NV3052C GIP 起始 | ❌ 无效 | Page3[0x00] 调整无效果 | [源:实测] |
+| vendor BSP init 序列对比 | ⚠️ 未做 | 需反汇编 p4 boot.img 提取 SPI 序列 | — |
+
+**结论**([源:实测+推断]):
+
+内存→DE33→TCON 全链路验证通过(§1-4)。水平 1px 左移回绕已通过已知图案拍屏确认([源:实测])。垂直方向无问题。问题锁定在 **NV3052C 面板内部源输出时序**。
+
+最可能的原因([源:推断]):
+1. **`wl_355608_a8_panel_regs[]` 与 SP 面板不完全匹配**:GIP 信号映射(page 3, 寄存器 0xb1-0xd0)或源输出时序(page 1/2)与 SP 面板的玻璃基板走线不完全匹配
+2. **需对比 vendor BSP init 序列**:反汇编 p4 boot.img 中 `lcd_panel_fog_fj035fhd05_v1_init` 函数,提取 SPI 命令序列,逐条比对
+
+**已排除的寄存器修改**([源:实测] 2026-06-24):
+
+| 寄存器 | 原值 | 试值 | 结果 |
+|---|---|---|---|
+| TCON DCLK_PHASE | 0 | 1, 2 | 1=无效, 2=黑屏 |
+| TCON HBP | 55 | 47 | 无效 |
+| CASET/RASET | 默认 | 0-639, 0-479 | 无效 |
+| Page1[0x03] | 0x40 | 0x3f, 0x41 | 无效 |
+| Page1[0x04] | 0x00 | 0x01, 0xff | 无效 |
+| Page1[0x05] | 0x03 | 0x02, 0x04 | 无效 |
+| Page1[0x08] | 0x00 | 0x01 | 无效 |
+| Page1[0x09] | 0x07 | 0x06, 0x08 | 无效 |
+| Page1[0x0a] | 0x01 | 0x00, 0x02 | 无效 |
+| Page2[0x01] | 0x01 | 0x00 | 无效 |
+| Page3[0x00] | 0x2a | 0x2b | 无效 |
+
+> **[勘误 2026-06-27 #13]**:上表「TCON DCLK_PHASE 0→1,2 结果 1=无效,2=黑屏」一条**部分作废**。#13 重新实测发现:
+> - `DCLK_PHASE=1`(0x10000000,即 `dclk_sel=1`)本次**未测**,需补测
+> - `DCLK_PHASE=2`(0x20000000,即 `dclk_sel=2`,BSP phase 1)实际**亮屏且回绕消失**,仅引入 1px 右移,**非黑屏**
+> - 原「2=黑屏」判断系位域混淆误判。详见 §99 #13。
+> 本表其余 NV3052C SPI 寄存器(Page1/Page2/Page3)的「无效」结论仍然有效(#12 datasheet 已证 panel 侧无水平位置寄存器)。
+
+**结论**:
+
+TCON 侧 + NV3052C 已知寄存器均无法修正 1px 偏移。问题可能在:
+1. NV3052C 未文档化的源输出时序寄存器(需 datasheet)
+2. `wl_355608_a8_panel_regs[]` 与 SP 面板不匹配(需 vendor BSP SPI 序列对比)
+3. 面板硬件本身的设计特性(可能无法通过软件修复)
+
+> **[勘误 2026-06-27 #13]**:上述结论第 1、3 条**部分作废**。#13 实测证明 TCON 侧 `dclk_sel`(bits 30:28)是有效旋钮,`dclk_sel=2` 可消除回绕(引入 1px 右移待补偿)。NV3052C 侧无寄存器的判断(#12 datasheet 佐证)仍成立。问题非「无法通过软件修复」,而是「需 dclk_sel=2 + 1px 补偿」。
+
+**下一步**:
+1. **反汇编 vendor BSP 提取 SPI init 序列**:与 `wl_355608_a8_panel_regs[]` 逐条对比(需找到 SPI 写入函数的代码路径)
+2. **获取 NV3052C datasheet**:查找源输出时序相关的未文档化寄存器
+3. **逻辑分析仪**:抓 vendor BSP 的 SPI 初始化序列,与 mainline 对比
+4. **软件 workaround**:在 framebuffer 写入时右移 1 像素补偿(不修复根因,但消除可见问题)
+
+更新章节:§99(本条)
+
 ### 2026-05-22 #8 — 深入代码静态分析:component bind 链路全审计(本次研究)
 
-**分析目的**:在设备已处于 `flash_sd.sh` 刷新状态时，通过源码审计确定为什么 `sun4i_drv_bind` 没有被调用([源:推断])。
+**分析目的**:在设备已处于 刷卡流程 刷新状态时，通过源码审计确定为什么 `sun4i_drv_bind` 没有被调用([源:推断])。
 
 **审查范围**:
 - `drivers/gpu/drm/sun4i/sun4i_drv.c` — OF graph 遍历 + component master 注册
@@ -603,12 +1022,12 @@ cat /sys/class/backlight/*/brightness
 ```
 tcon_tv0@6515000 被加入 component list，但它在设备上永远不会 probe。
 
-**修复**(commit `8dfd74be3`):
+**修复**:
 - `sun50i-h616.dtsi` 的 `tcon_tv0` 节点加 `status = "disabled";`(+1 行)
 - 与其他 display 节点(display-engine/hdmi/tcon_lcd0)的约定一致
 - Component 匹配从 5 个缩减到正确的 4 个 → `sun4i_drv_bind` 应能正常调用
 
-**额外提交**(commit `12e89e8e4`):
+**额外提交**:
 - `sun4i_drv.c` + `sun8i_mixer.c` 加 9 个 `pr_info` tracepoint
 - 覆盖 probe 入口/管线数/count/bind 入口/component_bind_all/drm_dev_register
 
@@ -652,7 +1071,7 @@ tcon_tv0@6515000 被加入 component list，但它在设备上永远不会 probe
 
 ### 2026-05-22 #7 — 设备首次上电验证(屏未亮)
 
-**操作**:用户已推到设备(`deploy_ssh.sh --reboot`),kernel 7.0.9 启动成功。ssh sp 检查显示子系统状态。
+**操作**:用户已推到设备(远程部署并重启),kernel 7.0.9 启动成功。ssh root@DEVICE_HOST 检查显示子系统状态。
 
 **设备环境**([源:实测]):
 - `uname -r` = `7.0.9`,uptime 6 min
@@ -760,7 +1179,7 @@ page_alloc WARNING([源:实测] `mm/page_alloc.c:5234` @ `__alloc_frozen_pages_n
 - 修法两点 combine:
   - `rg35xxsp.config` 加 `# CONFIG_LOCALVERSION_AUTO is not set`
   - `build_kernel.sh` 给 make 加 `LOCALVERSION=""`(压住 setlocalversion 的 `+` 追加)
-- 最终 `uname -r` = `7.0.9`,modules 装到 `/lib/modules/7.0.9/`(`deploy_ssh.sh` 内 KVER=7.0.9 hardcode 不用改)
+- 最终 `uname -r` = `7.0.9`,modules 装到 `/lib/modules/7.0.9/`（安装到与内核版本匹配的目录）
 
 **`rg35xxsp.config` 新增 4 行 Kconfig**:
 - `CONFIG_DRM_PANEL_NEWVISION_NV3052C=m`
@@ -775,13 +1194,12 @@ page_alloc WARNING([源:实测] `mm/page_alloc.c:5234` @ `__alloc_frozen_pages_n
 - `SUN50I_IOMMU` builtin(modules 内只有 apple-dart.ko,符合预期)
 - dtb 内 `strings` 验证:含 `anbernic,rg35xx-sp-panel`、`sun50i-h616-display-engine`、`sun50i-h616-de33-mixer-0`、`sun50i-h616-tcon-lcd` 等关键 compatible
 
-**git 状态**:`linux-7.0.9` 16 commits — baseline + 11 batocera + 3 local + 1 .gitignore 修补
 
 更新章节:§0 状态、§99(本条)
 
 ### 2026-05-22 #5 — 预检 + git baseline + 4 项新发现
 
-应用 Batocera patch 前的预检,在 `linux-7.0.9` 源码 grep + ssh sp 实测:
+应用 Batocera patch 前的预检,在 `linux-7.0.9` 源码 grep + ssh root@DEVICE_HOST 实测:
 
 - ✅ [源:实测] H616 CCU clock 全齐:`CLK_TCON_LCD0=130`、`CLK_BUS_TCON_LCD0=131`、`pll-video0/1/2` + 4x 变体、`tcon_tv_parents`(共享给 tcon_lcd)— 见 §4.6
 - ⚠️ [源:实测] H616 SRAM-C 走 a64 fallback:7.0.9 `sunxi_sram.c` 没注册 `sun50i-h616-sram-c`,Batocera dtsi 用 fallback 兼容串 → driver 走 a64,**待上电验证**(§4.7)
@@ -791,7 +1209,6 @@ page_alloc WARNING([源:实测] `mm/page_alloc.c:5234` @ `__alloc_frozen_pages_n
 - ✅ [源:厂商+实测] Panel reset 极性 BSP / mainline / Batocera 全部 active-low,一致(§4.10)
 
 工程基础设施:
-- 完成 `linux-7.0.9` git init + kernel-aware .gitignore + baseline commit `a8b03ff`(§12)
 - 顺手把 `CONFIG_SUN50I_IOMMU=y` 加进 `rg35xxsp.config` 修 P0-4 panfrost(独立问题,详 issues.md P0-4)
 
 更新章节:§0(状态) / §4.6-4.10(预检) / §10(落地清单,加 git am 流程 + panel info fork) / §11 / §12(新增 git 工作流)
@@ -822,7 +1239,7 @@ page_alloc WARNING([源:实测] `mm/page_alloc.c:5234` @ `__alloc_frozen_pages_n
 
 ### 2026-05-22 #2 — 从原厂 BSP 抠出全部硬件数据
 
-通过 ssh sp 直连设备 + 反编译 p4 Android boot image 内三个候选 dtb,在不上电试错的前提下消除了 §4 大部分不确定项:
+通过 ssh root@DEVICE_HOST 直连设备 + 反编译 p4 Android boot image 内三个候选 dtb,在不上电试错的前提下消除了 §4 大部分不确定项:
 
 - ✅ **Panel 版本确认 v1**:p4 三个候选 dtb 中,实测生效的 dtb 0 `lcd_driver_name = fog_fj035fhd05_v1`,640×480。不存在 v2/rev6 字符串
 - ✅ **GPIO 走线 6 个全部确认与 Batocera 0002 patch 19/21 一致**(PI8/9/10/14/15 + PD28)

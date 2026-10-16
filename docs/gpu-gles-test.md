@@ -1,16 +1,18 @@
 # RG35XX SP GPU / GLES 测试总结
 
-设备: ANBERNIC RG35XX SP (Allwinner H616, Mali-G31 MC1, Panfrost)
+> 2026-06 历史测试记录，不能替代当前 7.2.9 的完整 GPU 验收。驱动节点编号与 Mesa 能力需按目标系统重新检查。
+
+设备：RG35XX-SP（Allwinner H700 / H616 系列，Mali-G31，Panfrost）
 
 ## 硬件信息
 
 | 项目 | 详情 |
 |------|------|
-| SoC | Allwinner H616 |
+| SoC | Allwinner H700（H616 系列） |
 | GPU | Mali-G31 MC1 (Bifrost gen3) |
-| 内核驱动 | panfrost (Mesa 26.1.2) |
-| DRM节点 | /dev/dri/card0 (sun4i-drm 显示引擎), /dev/dri/card1 (panfrost GPU) |
-| 显示输出 | card1-Unknown-1 (DSI面板), 640x480, XRGB8888 |
+| 驱动栈 | 内核 Panfrost + Mesa 26.1.2（历史测试环境） |
+| DRM 节点 | 按驱动枚举区分 sun4i-drm 与 Panfrost，不固定 card 编号 |
+| 显示输出 | RGB LCD，640×480，XRGB8888 |
 
 ## 支持情况
 
@@ -45,7 +47,7 @@ vulkan-mesa-implicit-layers
 
 ## DRM 输出注意事项
 
-1. 显示在 card1, 不是 card0:
+1. 先确认 sun4i-drm 所属节点；下面的 card1 仅为示例，编号不固定：
    ```c
    fd = open("/dev/dri/card1", O_RDWR);
    ```
@@ -70,17 +72,11 @@ vulkan-mesa-implicit-layers
    drmModeAddFB2(fd, w, h, 0x34325258, handles, strides, offsets, &fb_id, 0);
    ```
 
-## GLES 着色器兼容性 (Panfrost)
+## GLES 示例
 
-| 特性 | 支持 | 备注 |
-|------|------|------|
-| GLSL ES 3.10 | ✅ | |
-| `uniform mat4` | ✅ | 但 `glGetUniformLocation` 可能返回 0, 不可靠 |
-| UBO (`layout(std140)`) | ⚠️ | 语法支持但矩阵数据传递不生效 |
-| `layout(binding=N)` | ❌ | GLSL ES 3.10 不支持, 需要 3.20 |
-| 内联矩阵运算 | ✅ | 最可靠的方式 |
-
-**推荐做法**: 矩阵运算直接写在顶点着色器里, 用 `uniform float u_t` 传时间参数.
+早期测试曾观察到 uniform / UBO 使用问题，尚不能据此判断整个驱动不支持这些功能。
+`glGetUniformLocation` 返回 0 是有效位置，错误应检查 -1。
+下面保留当时用于隔离问题的内联矩阵示例。
 
 示例 (内联旋转+透视):
 ```glsl
@@ -114,7 +110,7 @@ gcc -D_GNU_SOURCE -I/usr/include/libdrm -o drm_gles drm_gles.c \
     -lEGL -lGLESv2 -lgbm -ldrm -lm
 ```
 
-或使用 `/root/gles/Makefile`.
+
 
 ## 诊断命令
 

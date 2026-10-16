@@ -1,5 +1,7 @@
 # HandsomeMod 4.9 内核编译验证报告
 
+> 本页为历史 BSP 4.9 构建分析；当前项目使用 Linux 7.2.9，见[主线指南](mainline-guide.md)。
+
 > **来源等级声明**：本文档属"二手分析"——记录的是在主机端对 HandsomeMod 4.9 内核源码做 `make oldconfig` / `make Image` 的过程与结论，**不是设备实测、不是官方 PDF**。所有与硬件实际行为相关的断言以 `device-facts.md` 为准；本文档仅作"内核编译可行性"参考。
 >
 > 设备硬件/运行时事实见 `device-facts.md`（已采用三类权威来源：设备实测 / 串口日志 / 官方 PDF）。
