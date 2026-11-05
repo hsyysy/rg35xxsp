@@ -3,9 +3,6 @@ site/
 __pycache__/
 *.pyc
 
-# Private working environments
-.claude/
-.agents/
-.codex/
+# Local credentials
 .env
 .env.*
