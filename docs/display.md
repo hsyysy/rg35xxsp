@@ -29,8 +29,9 @@ YU12 YV12 YU16 YV16 YU11 YV11
 ```
 
 这些格式已按 320×240 → 640×480、1:1 居中、640×480 → 320×240 三种几何验证
-KMS 提交。颜色验收使用 mpv 的 DMA-BUF 路径：NV12 1280×960 → 640×480
-缩小颜色正常。`de33-yuv` 的 dumb-buffer/legacy 路径不作为颜色依据。
+KMS 提交。颜色验收使用 `de33-atomic`（CMA DMA-BUF + atomic）：16 个格式
+1:1 颜色全部正常，12 个 non-packed 格式缩小颜色正常；packed 4:2:2 双向
+缩小由驱动拒绝。`de33-yuv` 的 dumb-buffer/legacy 路径不作为颜色依据。
 UI 与 VI 的 RGB 2× 缩放已目视正常。
 
 ## HDMI
@@ -50,5 +51,5 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
 
 - HDMI 上的 VI ch1/ch2 使用 VSU8，需要接 HDMI sink 才能做 YUV 扫描输出验收。
 - 没有 DE33 writeback，无法回读 mixer 合成后的像素；颜色结论来自目视。
-- 缩小路径：NV12 1:1/缩小正常；packed 4:2:2 双向缩小不支持，驱动返回
-  `-ERANGE`，1:1 和单方向缩小正常。
+- 缩小路径：16 个格式 1:1 和 12 个 non-packed 格式缩小颜色正常；
+  packed 4:2:2 双向缩小不支持，驱动返回 `-ERANGE`，1:1 和单方向缩小正常。

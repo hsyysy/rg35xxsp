@@ -9,7 +9,7 @@
 |---|---|
 | 启动链 | TF-A BL31、U-Boot 2026.04、Linux 7.3.1 正常启动 |
 | LCD | 640×480 输出；左右边缘回绕已修复；1 px 棋盘不再出现绿边和残影 |
-| DE33 显示 | UI / VI 平面、RGB 缩放；16 个 YUV 格式 KMS 提交；NV12 1:1/缩小颜色正常 |
+| DE33 显示 | UI / VI 平面、RGB 缩放；16 个 YUV 格式 1:1 颜色全部正常，12 个 non-packed 格式缩小正常 |
 | HDMI | mini-HDMI 1080p60 输出；H616 AHUB HDMI 音频 |
 | 音频 | 扬声器与耳机输出；插耳机时关闭扬声器 PA；音量键有效 |
 | 背光 | PWM0 50 kHz 连续调光，菜单 5%–100%，重启后保持 |
@@ -29,7 +29,7 @@
 | HDMI 4K | 默认限制在 200 MHz TMDS，只输出 1080p60；4K30/4K60 需要换线后单独验证 |
 | HDMI CEC / HDCP | 未验收 |
 | HDMI VI ch1/ch2 | 这两层只在 HDMI CRTC 上可用，尚未接 HDMI sink 做 YUV 扫描输出验收 |
-| DE33 缩小路径 | NV12 1:1/缩小正常；packed 4:2:2 双向缩小不支持，驱动返回 `-ERANGE`；16 格式逐项颜色待复核 |
+| DE33 缩小路径 | 12 个 non-packed 格式缩小正常；packed 4:2:2 双向缩小不支持，驱动返回 `-ERANGE`，1:1 和单方向正常 |
 | 视频长时播放 | 短时播放、掉帧和音画同步已通过；长时间热稳定和功耗仍需观察 |
 | 上游 VE IOMMU/SRAM | 直接采用上游 H616 VE IOMMU/SRAM 配置会触发页错误和 request 超时，当前未纳入 |
 | 开机图 | U-Boot 尚未启用显示和 splash，内核 logo 也未接入 |
