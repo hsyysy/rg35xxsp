@@ -17,8 +17,8 @@
 | VI ch1/ch2 | VSU8 |
 | UI ch6/ch7/ch8 | VSU8 |
 
-驱动为每个通道维护独立的 scaler 类型和 scanline 上限。VI ch1/ch2（VSU8）的
-YUV 输出目前偏绿，暂不作为可用路径。
+驱动为每个通道维护独立的 scaler 类型和 scanline 上限。VI ch1/ch2（VSU8）已
+限制为只公布 RGB，YUV plane 请求会被拒绝，不再输出偏绿画面。
 
 VI plane 在 LCD 上公布 16 个 YUV 格式：
 
@@ -48,8 +48,8 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
   HDMI 声卡。
 - LCD 与 HDMI 可同时工作。
 
-HDMI 的 VI ch1/ch2（VSU8）YUV 输出颜色偏绿，暂不作为可用路径；4K60 结论只
-覆盖 RGB 主平面。HDMI CEC/HDCP 尚未验收。
+HDMI 的 VI ch1/ch2（VSU8）已限制为只公布 RGB，YUV 请求会被拒绝；4K60
+结论只覆盖 RGB 主平面。HDMI CEC/HDCP 尚未验收。
 
 ## 限制
 
