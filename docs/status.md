@@ -18,6 +18,7 @@
 | WiFi | RTL8821CS SDIO，mainline `rtw88` 驱动 |
 | USB | 默认 gadget（CDC-ECM / SSH）；运行时切换到 Host |
 | 存储 | TF1 启动 / 根分区；TF2 exFAT 用户卡 |
+| 刷写 | 整卡/增量/分项更新，自动备份、校验与 `--rollback` |
 | 视频 | H.264、HEVC Main 8-bit、MPEG-2、VP8 硬件解码；mpv `drmprime` 播放 |
 | 输入 | 15 个 gamepad 键、音量键、电源键；按键测试与菜单交接正常 |
 
@@ -31,7 +32,6 @@
 | DE33 缩小路径 | 640×480 → 320×240 只验证了 KMS 提交；没有 writeback，无法自动比对合成像素 |
 | 视频长时播放 | 短时播放、掉帧和音画同步已通过；长时间热稳定和功耗仍需观察 |
 | 上游 VE IOMMU/SRAM | 直接采用上游 H616 VE IOMMU/SRAM 配置会触发页错误和 request 超时，当前未纳入 |
-| 刷写流程 | 整卡备份、增量备份与 `--rollback` 已在真实卡全量/增量/回滚测试中通过；分项更新模式未实现 |
 | 开机图 | U-Boot 尚未启用显示和 splash，内核 logo 也未接入 |
 | 蓝牙 | 禁用；RTL8821CS 组合芯片的 BT 初始化会影响 WiFi |
 | KASLR | 未启用，属于已接受的限制 |
