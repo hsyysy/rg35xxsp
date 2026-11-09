@@ -46,6 +46,8 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
 - 4K60 静态演示偶发 1–2 次闪烁/撕裂，4K30 未观察到；链路余量仍需观察。
 - HDMI 音频由 H616 AHUB DAM + port 1 接到 DW-HDMI I2S codec，注册为独立的
   HDMI 声卡。
+- 菜单 `系统 → HDMI 输出模式` 可选择自动（EDID 首选）或具体模式；选择保存
+  在 `/etc/rg35xxsp/hdmi-mode`，外部程序包装脚本读取。
 - LCD 与 HDMI 可同时工作。
 
 HDMI 的 VI ch1/ch2（VSU8）已限制为只公布 RGB，YUV 请求会被拒绝；4K60
