@@ -43,7 +43,7 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
   按 EDID 首选 4K60。切换模式时闪一次属链路重新训练。
 - LCD 菜单与 HDMI 4K60 可同时工作：LCD TCON 固定在 `PLL_VIDEO1`，HDMI TCON
   使用 `PLL_VIDEO0`。
-- 4K60 静态演示偶发 1–2 次闪烁/撕裂，4K30 未观察到；链路余量仍需观察。
+- 4K60 输出已通过用户验收（2026-11-09），长时间使用未再观察到闪烁或撕裂。
 - HDMI 音频由 H616 AHUB DAM + port 1 接到 DW-HDMI I2S codec，注册为独立的
   HDMI 声卡。
 - 菜单 `系统 → HDMI 输出模式` 显示当前模式，滚动列出全部 EDID 模式；
@@ -55,7 +55,7 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
 - LCD 与 HDMI 可同时工作。
 
 HDMI 的 VI ch1/ch2（VSU8）已限制为只公布 RGB，YUV 请求会被拒绝；4K60
-结论只覆盖 RGB 主平面。HDMI CEC/HDCP 尚未验收。
+结论只覆盖 RGB 主平面。HDMI CEC/HDCP 未实现，不在当前范围。
 
 ## 限制
 
