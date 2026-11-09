@@ -31,7 +31,7 @@
 | HDMI CEC / HDCP | 未实现，不在当前范围 |
 | HDMI VI ch1/ch2 | 这两层使用 VSU8；驱动已限制为只公布 RGB，YUV 请求会被拒绝，HDMI 视频走 RGB/GPU 路径 |
 | DE33 缩小路径 | 12 个 non-packed 格式缩小正常；packed 4:2:2 双向缩小不支持，驱动返回 `-ERANGE`，1:1 和单方向正常 |
-| 视频热稳定 | 播放、掉帧和音画同步已通过；长时间温升与功耗仍需观察 |
+| 视频热稳定 | 播放、掉帧和音画同步已通过；长时间温升与功耗暂不测量（非阻塞） |
 | 上游 VE IOMMU/SRAM | 直接采用上游 H616 VE IOMMU/SRAM 配置会触发页错误和 request 超时，当前未纳入 |
 | 开机图 | U-Boot 尚未启用显示和 splash，内核 logo 也未接入 |
 | 蓝牙 | 禁用；RTL8821CS 组合芯片的 BT 初始化会影响 WiFi |
