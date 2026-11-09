@@ -49,6 +49,8 @@ UI 与 VI 的 RGB 2× 缩放已目视正常。
 - 菜单 `系统 → HDMI 输出模式` 显示当前模式，滚动列出全部 EDID 模式；
   选择后立即切换 HDMI 输出并保存在 `/etc/rg35xxsp/hdmi-mode`，外部程序
   包装脚本读取。
+- 128 MB CMA 下，1080p H.264 硬解 + 4K60 GPU scanout 会耗尽 CMA；`mpv-hdmi`
+  的 auto 固定使用 1080p，1080p 视频建议用 1080p 输出。
 - LCD 与 HDMI 可同时工作。
 
 HDMI 的 VI ch1/ch2（VSU8）已限制为只公布 RGB，YUV 请求会被拒绝；4K60
